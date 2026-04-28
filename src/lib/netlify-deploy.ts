@@ -97,7 +97,7 @@ async function deployZip(
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/zip",
     },
-    body: zipBuffer,
+    body: Buffer.from(zipBuffer),
   });
 
   if (!res.ok) {
