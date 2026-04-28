@@ -74,7 +74,7 @@ async function deployFiles(siteId: string, zipBuffer: Uint8Array, token: string)
     await fetch(`${NETLIFY_API}/deploys/${deploy.id}/files${path}`, {
       method: "PUT",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": getContentType(path) },
-      body: content,
+      body: new Uint8Array(content),
     });
   }
 
