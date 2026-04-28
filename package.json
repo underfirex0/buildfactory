@@ -12,6 +12,7 @@
   "dependencies": {
     "@supabase/ssr": "^0.3.0",
     "@supabase/supabase-js": "^2.43.4",
+    "autoprefixer": "^10.5.0",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
     "jszip": "^3.10.1",
