@@ -271,23 +271,41 @@ export async function processTemplate(templateBuffer: ArrayBuffer, lead: Lead): 
   const outputZip = new JSZip();
   const placeholderMap = buildPlaceholderMap(lead);
 
+  // Detect if all files live inside a single root folder — if so, strip that prefix
+  // so index.html ends up at the root of the output ZIP (required for Netlify deploy)
+  const allFiles = Object.keys(zip.files).filter(f => !zip.files[f].dir);
+  const rootFolders = new Set(allFiles.map(f => f.split("/")[0]));
+  const hasSingleRoot = rootFolders.size === 1 && allFiles.every(f => f.includes("/"));
+  const rootPrefix = hasSingleRoot ? [...rootFolders][0] + "/" : "";
+
   for (const [filename, file] of Object.entries(zip.files)) {
-    if ((file as any).dir) { outputZip.folder(filename); continue; }
+    if ((file as any).dir) continue; // skip directory entries
+
+    // Strip root folder prefix if present
+    const outputName = rootPrefix && filename.startsWith(rootPrefix)
+      ? filename.slice(rootPrefix.length)
+      : filename;
+
+    if (!outputName) continue; // skip the root folder itself
+
     if (!isTextFile(filename)) {
       const content = await (file as any).async("arraybuffer");
-      outputZip.file(filename, content);
+      outputZip.file(outputName, content);
       continue;
     }
+
     let content = await (file as any).async("text");
+
     if (templateType === "react-vite") {
       const baseName = filename.split("/").pop() ?? "";
       if (baseName === "businessConfig.ts" || baseName === "businessConfig.js") content = patchBusinessConfig(content, lead);
       else if (baseName === "index.html") content = patchIndexHtml(content, lead);
-      outputZip.file(filename, content);
+      outputZip.file(outputName, content);
     } else {
+      // HTML injectable: replace all {{PLACEHOLDER}} tokens
       let result = content;
       for (const [token, value] of Object.entries(placeholderMap)) result = result.replaceAll(token, value);
-      let processedName = filename;
+      let processedName = outputName;
       for (const [token, value] of Object.entries(placeholderMap)) processedName = processedName.replaceAll(token, value);
       outputZip.file(processedName, result);
     }
