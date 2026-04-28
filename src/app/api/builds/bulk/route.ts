@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
 import { processTemplate } from "@/lib/build-engine";
-import { deployToNetlify } from "@/lib/netlify-deploy";
+import { deployToVercel } from "@/lib/vercel-deploy";
 
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   const supabase = createServiceClient();
+  const vercelToken = process.env.VERCEL_API_TOKEN;
 
   let template_id: string;
   let lead_ids: string[];
@@ -22,8 +23,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: err.message }, { status: 400 });
   }
 
-  const netlifyToken = process.env.NETLIFY_API_TOKEN;
-
   const { data: template, error: templateErr } = await supabase
     .from("templates").select("*").eq("id", template_id).single();
   if (templateErr || !template) return NextResponse.json({ error: "Template not found" }, { status: 404 });
@@ -34,7 +33,7 @@ export async function POST(req: NextRequest) {
 
   const { data: fileData, error: storageErr } = await supabase.storage
     .from("templates").download(template.file_path);
-  if (storageErr || !fileData) return NextResponse.json({ error: `Failed to fetch template: ${storageErr?.message}` }, { status: 500 });
+  if (storageErr || !fileData) return NextResponse.json({ error: `Failed to fetch template` }, { status: 500 });
 
   const templateBuffer = await fileData.arrayBuffer();
 
@@ -56,33 +55,44 @@ export async function POST(req: NextRequest) {
         const slug = lead.company_name.toLowerCase().replace(/\s+/g, "-");
         const outputPath = `${buildRecord.id}/${slug}-website.zip`;
 
-        await supabase.storage.from("builds").upload(outputPath, outputZip, { contentType: "application/zip", upsert: true });
+        await supabase.storage.from("builds").upload(outputPath, outputZip, {
+          contentType: "application/zip", upsert: true,
+        });
 
         let outputUrl: string | null = null;
-        let netlifyId: string | null = null;
+        let deploymentId: string | null = null;
 
-        if (netlifyToken) {
+        if (vercelToken) {
           try {
             const siteName = `${slug}-${lead.city.toLowerCase().replace(/\s+/g, "-")}`;
-            const result = await deployToNetlify(outputZip, siteName, netlifyToken);
+            const result = await deployToVercel(outputZip, siteName, vercelToken);
             outputUrl = result.url;
-            netlifyId = result.siteId;
+            deploymentId = result.deploymentId;
           } catch (deployErr: any) {
-            console.error("[NETLIFY DEPLOY ERROR]", lead.company_name, deployErr.message);
+            console.error("[VERCEL DEPLOY ERROR]", lead.company_name, deployErr.message);
           }
         }
 
         await supabase.from("builds").update({
-          status: "done", output_path: outputPath, output_url: outputUrl,
-          netlify_site_id: netlifyId, completed_at: new Date().toISOString(), error_msg: null,
+          status: "done", output_path: outputPath,
+          output_url: outputUrl, netlify_site_id: deploymentId,
+          completed_at: new Date().toISOString(), error_msg: null,
         }).eq("id", buildRecord.id);
 
-        return { build_id: buildRecord.id, lead_id: lead.id, company_name: lead.company_name, city: lead.city, status: "done", output_url: outputUrl };
+        return {
+          build_id: buildRecord.id, lead_id: lead.id,
+          company_name: lead.company_name, city: lead.city,
+          status: "done", output_url: outputUrl,
+        };
       } catch (err: any) {
         await supabase.from("builds").update({
-          status: "failed", error_msg: err.message, completed_at: new Date().toISOString(),
+          status: "failed", error_msg: err.message,
+          completed_at: new Date().toISOString(),
         }).eq("id", buildRecord.id);
-        return { build_id: buildRecord.id, lead_id: lead.id, company_name: lead.company_name, status: "failed", error: err.message };
+        return {
+          build_id: buildRecord.id, lead_id: lead.id,
+          company_name: lead.company_name, status: "failed", error: err.message,
+        };
       }
     })
   );
@@ -91,5 +101,9 @@ export async function POST(req: NextRequest) {
   const successful = summary.filter((r: any) => r.status === "done").length;
   const failed = summary.filter((r: any) => r.status === "failed").length;
 
-  return NextResponse.json({ success: true, summary: { total: leads.length, successful, failed }, results: summary });
+  return NextResponse.json({
+    success: true,
+    summary: { total: leads.length, successful, failed },
+    results: summary,
+  });
 }

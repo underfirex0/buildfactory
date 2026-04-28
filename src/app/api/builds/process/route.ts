@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
 import { processTemplate } from "@/lib/build-engine";
-import { deployToNetlify, redeployToNetlify } from "@/lib/netlify-deploy";
+import { deployToVercel } from "@/lib/vercel-deploy";
 
 export const maxDuration = 60;
 
@@ -17,14 +17,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: err.message }, { status: 400 });
   }
 
-  const netlifyToken = process.env.NETLIFY_API_TOKEN;
+  const vercelToken = process.env.VERCEL_API_TOKEN;
 
   try {
     const { data: build, error: buildErr } = await supabase
-      .from("builds")
-      .select("*, leads(*), templates(*)")
-      .eq("id", buildId)
-      .single();
+      .from("builds").select("*, leads(*), templates(*)")
+      .eq("id", buildId).single();
 
     if (buildErr || !build) throw new Error("Build record not found");
 
@@ -34,65 +32,50 @@ export async function POST(req: NextRequest) {
     if (!template) throw new Error("Template not found");
 
     const { data: fileData, error: storageErr } = await supabase.storage
-      .from("templates")
-      .download(template.file_path);
-
+      .from("templates").download(template.file_path);
     if (storageErr || !fileData) throw new Error(`Failed to fetch template: ${storageErr?.message}`);
 
     const templateBuffer = await fileData.arrayBuffer();
     const outputZip = await processTemplate(templateBuffer, lead);
 
+    // Save ZIP to Supabase Storage
     const slug = lead.company_name.toLowerCase().replace(/\s+/g, "-");
     const outputPath = `${buildId}/${slug}-website.zip`;
+    await supabase.storage.from("builds").upload(outputPath, outputZip, {
+      contentType: "application/zip", upsert: true,
+    });
 
-    await supabase.storage
-      .from("builds")
-      .upload(outputPath, outputZip, { contentType: "application/zip", upsert: true });
-
+    // Deploy to Vercel
     let outputUrl: string | null = null;
-    let netlifyId: string | null = null;
+    let vercelDeploymentId: string | null = null;
 
-    if (netlifyToken) {
+    if (vercelToken) {
       try {
-        const existingSiteId = build.netlify_site_id;
-        if (existingSiteId) {
-          const result = await redeployToNetlify(existingSiteId, outputZip, netlifyToken);
-          outputUrl = result.url;
-          netlifyId = existingSiteId;
-        } else {
-          const siteName = `${slug}-${lead.city.toLowerCase().replace(/\s+/g, "-")}`;
-          const result = await deployToNetlify(outputZip, siteName, netlifyToken);
-          outputUrl = result.url;
-          netlifyId = result.siteId;
-        }
+        const siteName = `${slug}-${lead.city.toLowerCase().replace(/\s+/g, "-")}`;
+        const result = await deployToVercel(outputZip, siteName, vercelToken);
+        outputUrl = result.url;
+        vercelDeploymentId = result.deploymentId;
       } catch (deployErr: any) {
-        console.error("[NETLIFY DEPLOY ERROR]", deployErr.message);
+        console.error("[VERCEL DEPLOY ERROR]", deployErr.message);
       }
     }
 
-    await supabase
-      .from("builds")
-      .update({
-        status: "done",
-        output_path: outputPath,
-        output_url: outputUrl,
-        netlify_site_id: netlifyId,
-        completed_at: new Date().toISOString(),
-        error_msg: null,
-      })
-      .eq("id", buildId);
+    await supabase.from("builds").update({
+      status: "done",
+      output_path: outputPath,
+      output_url: outputUrl,
+      netlify_site_id: vercelDeploymentId, // reuse column for vercel deployment id
+      completed_at: new Date().toISOString(),
+      error_msg: null,
+    }).eq("id", buildId);
 
     return NextResponse.json({ success: true, outputPath, outputUrl });
   } catch (err: any) {
-    await supabase
-      .from("builds")
-      .update({
-        status: "failed",
-        error_msg: err.message ?? "Unknown error",
-        completed_at: new Date().toISOString(),
-      })
-      .eq("id", buildId);
-
+    await supabase.from("builds").update({
+      status: "failed",
+      error_msg: err.message ?? "Unknown error",
+      completed_at: new Date().toISOString(),
+    }).eq("id", buildId);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
