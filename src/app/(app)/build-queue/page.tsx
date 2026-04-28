@@ -13,7 +13,7 @@ import type { Build, Lead, Template } from "@/types";
 import {
   Hammer, Plus, Building2, Download, RefreshCw,
   Clock, CheckCircle2, XCircle, Loader2, FileCode2,
-  Layers, AlertCircle,
+  Layers, AlertCircle, ExternalLink,
 } from "lucide-react";
 import toast from "react-hot-toast";
 

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
 import { processTemplate } from "@/lib/build-engine";
+import { deployToNetlify, redeployToNetlify } from "@/lib/netlify-deploy";
 
-export const maxDuration = 60; // Vercel max for hobby plan
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   const supabase = createServiceClient();
@@ -16,66 +17,73 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: err.message }, { status: 400 });
   }
 
+  const netlifyToken = process.env.NETLIFY_API_TOKEN;
+
   try {
-    // 1. Fetch build with lead + template
     const { data: build, error: buildErr } = await supabase
       .from("builds")
       .select("*, leads(*), templates(*)")
       .eq("id", buildId)
       .single();
 
-    if (buildErr || !build) {
-      throw new Error("Build record not found");
-    }
+    if (buildErr || !build) throw new Error("Build record not found");
 
     const lead = (build as any).leads;
     const template = (build as any).templates;
-
     if (!lead) throw new Error("Lead not found");
     if (!template) throw new Error("Template not found");
 
-    // 2. Download template ZIP from Storage
     const { data: fileData, error: storageErr } = await supabase.storage
       .from("templates")
       .download(template.file_path);
 
-    if (storageErr || !fileData) {
-      throw new Error(`Failed to fetch template file: ${storageErr?.message}`);
-    }
+    if (storageErr || !fileData) throw new Error(`Failed to fetch template: ${storageErr?.message}`);
 
     const templateBuffer = await fileData.arrayBuffer();
-
-    // 3. Process template → replace placeholders
     const outputZip = await processTemplate(templateBuffer, lead);
 
-    // 4. Upload output ZIP to builds bucket
-    const outputPath = `${buildId}/${lead.company_name
-      .toLowerCase()
-      .replace(/\s+/g, "-")}-website.zip`;
+    const slug = lead.company_name.toLowerCase().replace(/\s+/g, "-");
+    const outputPath = `${buildId}/${slug}-website.zip`;
 
-    const { error: uploadErr } = await supabase.storage
+    await supabase.storage
       .from("builds")
-      .upload(outputPath, outputZip, {
-        contentType: "application/zip",
-        upsert: true,
-      });
+      .upload(outputPath, outputZip, { contentType: "application/zip", upsert: true });
 
-    if (uploadErr) throw new Error(`Failed to upload output: ${uploadErr.message}`);
+    let outputUrl: string | null = null;
+    let netlifyId: string | null = null;
 
-    // 5. Mark build as done
+    if (netlifyToken) {
+      try {
+        const existingSiteId = build.netlify_site_id;
+        if (existingSiteId) {
+          const result = await redeployToNetlify(existingSiteId, outputZip, netlifyToken);
+          outputUrl = result.url;
+          netlifyId = existingSiteId;
+        } else {
+          const siteName = `${slug}-${lead.city.toLowerCase().replace(/\s+/g, "-")}`;
+          const result = await deployToNetlify(outputZip, siteName, netlifyToken);
+          outputUrl = result.url;
+          netlifyId = result.siteId;
+        }
+      } catch (deployErr: any) {
+        console.error("[NETLIFY DEPLOY ERROR]", deployErr.message);
+      }
+    }
+
     await supabase
       .from("builds")
       .update({
         status: "done",
         output_path: outputPath,
+        output_url: outputUrl,
+        netlify_site_id: netlifyId,
         completed_at: new Date().toISOString(),
         error_msg: null,
       })
       .eq("id", buildId);
 
-    return NextResponse.json({ success: true, outputPath });
+    return NextResponse.json({ success: true, outputPath, outputUrl });
   } catch (err: any) {
-    // Mark build as failed
     await supabase
       .from("builds")
       .update({
@@ -85,7 +93,6 @@ export async function POST(req: NextRequest) {
       })
       .eq("id", buildId);
 
-    console.error("[BUILD ERROR]", buildId, err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

@@ -50,6 +50,8 @@ export interface Build {
   template_id: string | null;
   status: BuildStatus;
   output_path: string | null;
+  output_url: string | null;
+  netlify_site_id: string | null;
   error_msg: string | null;
   started_at: string | null;
   completed_at: string | null;
