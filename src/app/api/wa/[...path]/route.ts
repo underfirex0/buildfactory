@@ -5,10 +5,10 @@ const WA_KEY = process.env.NEXT_PUBLIC_WA_API_KEY || "buildfactory-secret-key";
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { path: string[] } }
+  { params }: { params: Promise<{ path: string[] }> }
 ) {
-  const path = params.path.join("/");
-  const url = `${WA_SERVER}/${path}?key=${WA_KEY}`;
+  const { path: pathArr } = await params;
+  const url = `${WA_SERVER}/${pathArr.join("/")}?key=${WA_KEY}`;
 
   try {
     const res = await fetch(url);
@@ -21,10 +21,10 @@ export async function GET(
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { path: string[] } }
+  { params }: { params: Promise<{ path: string[] }> }
 ) {
-  const path = params.path.join("/");
-  const url = `${WA_SERVER}/${path}?key=${WA_KEY}`;
+  const { path: pathArr } = await params;
+  const url = `${WA_SERVER}/${pathArr.join("/")}?key=${WA_KEY}`;
   const body = await req.json().catch(() => ({}));
 
   try {
