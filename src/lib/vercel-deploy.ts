@@ -162,7 +162,7 @@ async function createDeployment(
 async function waitForDeployment(
   deploymentId: string,
   token: string,
-  maxAttempts = 30
+  maxAttempts = 20
 ): Promise<VercelDeployment> {
   for (let i = 0; i < maxAttempts; i++) {
     const res = await fetch(`${VERCEL_API}/v13/deployments/${deploymentId}`, {
@@ -178,7 +178,7 @@ async function waitForDeployment(
       throw new Error(`Vercel deployment ${deployment.readyState}`);
     }
 
-    await new Promise((r) => setTimeout(r, 2000));
+    await new Promise((r) => setTimeout(r, 1500));
   }
 
   throw new Error("Deployment timed out");
