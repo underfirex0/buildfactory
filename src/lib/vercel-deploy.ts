@@ -73,16 +73,13 @@ function getCleanUrl(deployment: VercelDeployment, siteName: string): string {
  * e.g. businessname.yako.studio
  */
 export async function assignCustomDomain(
-  deploymentUrl: string,
+  deploymentId: string,
   subdomain: string,
   token: string
 ): Promise<string> {
   const alias = subdomain.includes(".") ? subdomain : `${subdomain}.yako.studio`;
 
-  // Strip https:// from deployment URL
-  const cleanDeploymentUrl = deploymentUrl.replace("https://", "");
-
-  const res = await fetch(`${VERCEL_API}/v2/deployments/${cleanDeploymentUrl}/aliases`, {
+  const res = await fetch(`${VERCEL_API}/v2/deployments/${deploymentId}/aliases`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -93,11 +90,11 @@ export async function assignCustomDomain(
 
   if (!res.ok) {
     const err = await res.text();
-    console.error(`Failed to assign alias ${alias}: ${err}`);
-    // Don't throw — return the original URL as fallback
-    return deploymentUrl;
+    console.error(`[DOMAIN] Failed to assign ${alias}: ${err}`);
+    return "";
   }
 
+  console.log(`[DOMAIN] Assigned ${alias} ✅`);
   return `https://${alias}`;
 }
 
