@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { PageHeader } from "@/components/layout/Header";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -10,9 +10,13 @@ import type { Lead, Build } from "@/types";
 import {
   MessageCircle, Send, Layers, CheckCircle2,
   Building2, Globe, Phone, Search, Edit3,
-  AlertCircle, RefreshCw, XCircle,
+  AlertCircle, RefreshCw, XCircle, Wifi, WifiOff,
+  QrCode, Loader2, ZapOff,
 } from "lucide-react";
 import toast from "react-hot-toast";
+
+const WA_SERVER = process.env.NEXT_PUBLIC_WA_SERVER_URL || "http://136.117.247.136:3001";
+const WA_KEY = process.env.NEXT_PUBLIC_WA_API_KEY || "buildfactory-secret-key";
 
 const DEFAULT_MESSAGE = `Ahlan 👋
 {{COMPANY_NAME}} 3endkom khedma top, walakin bla site web rah clients kay9elbo 3la les concurrents f Google.
@@ -27,6 +31,8 @@ interface LeadWithBuild extends Lead {
   whatsapp_sent_at?: string;
 }
 
+type WaStatus = "disconnected" | "initializing" | "qr_ready" | "connected";
+
 export default function WhatsAppPage() {
   const [leads, setLeads] = useState<LeadWithBuild[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,6 +44,69 @@ export default function WhatsAppPage() {
   const [bulkSending, setBulkSending] = useState(false);
   const [filter, setFilter] = useState<"all" | "with-site" | "no-site" | "not-sent">("with-site");
 
+  // WA connection state
+  const [waStatus, setWaStatus] = useState<WaStatus>("disconnected");
+  const [qrCode, setQrCode] = useState<string | null>(null);
+  const [initLoading, setInitLoading] = useState(false);
+  const pollRef = useRef<NodeJS.Timeout | null>(null);
+
+  // ─── WA Server helpers ──────────────────────────────────────────────────────
+  const waFetch = useCallback(async (path: string, options?: RequestInit) => {
+    const sep = path.includes("?") ? "&" : "?";
+    const res = await fetch(`${WA_SERVER}${path}${sep}key=${WA_KEY}`, {
+      ...options,
+      headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
+    });
+    return res.json();
+  }, []);
+
+  const pollStatus = useCallback(async () => {
+    try {
+      const data = await waFetch("/status");
+      setWaStatus(data.status as WaStatus);
+
+      if (data.status === "qr_ready") {
+        const qrData = await waFetch("/qr");
+        if (qrData.qr) setQrCode(qrData.qr);
+      }
+
+      if (data.status === "connected") {
+        setQrCode(null);
+      }
+    } catch {
+      setWaStatus("disconnected");
+    }
+  }, [waFetch]);
+
+  // Poll every 3 seconds when not connected
+  useEffect(() => {
+    pollStatus();
+    pollRef.current = setInterval(() => {
+      if (waStatus !== "connected") pollStatus();
+    }, 3000);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [pollStatus, waStatus]);
+
+  const handleInit = async () => {
+    setInitLoading(true);
+    try {
+      await waFetch("/init", { method: "POST" });
+      setWaStatus("initializing");
+      toast.success("Initializing WhatsApp...");
+    } catch {
+      toast.error("Cannot reach WA server");
+    }
+    setInitLoading(false);
+  };
+
+  const handleDisconnect = async () => {
+    await waFetch("/disconnect", { method: "POST" });
+    setWaStatus("disconnected");
+    setQrCode(null);
+    toast.success("Disconnected");
+  };
+
+  // ─── Leads ──────────────────────────────────────────────────────────────────
   const fetchLeads = useCallback(async () => {
     setLoading(true);
     const { data: leadsData } = await supabase
@@ -76,76 +145,86 @@ export default function WhatsAppPage() {
       .replace(/{{PHONE}}/g, lead.phone ?? "");
   };
 
-  const getWhatsAppLink = (lead: LeadWithBuild): string => {
-    const phone = (lead.phone ?? "").replace(/[^0-9]/g, "");
-    const msg = encodeURIComponent(buildMessage(lead));
-    return `https://wa.me/${phone}?text=${msg}`;
-  };
-
-  const handleSendSingle = async (lead: LeadWithBuild) => {
-    if (!lead.phone) { toast.error("No phone number for this lead"); return; }
-    setSending(lead.id);
-
-    // Mark as sent in DB
+  const markSent = async (lead: LeadWithBuild, message: string, status: "sent" | "failed") => {
     await supabase.from("leads").update({
-      whatsapp_sent: true,
+      whatsapp_sent: status === "sent",
       whatsapp_sent_at: new Date().toISOString(),
-      status: "contacted",
+      status: status === "sent" ? "contacted" : lead.status,
     }).eq("id", lead.id);
 
-    // Log message
     await supabase.from("whatsapp_messages").insert({
       lead_id: lead.id,
       build_id: lead.build?.id ?? null,
       phone: lead.phone,
-      message: buildMessage(lead),
-      status: "sent",
-    }).select();
+      message,
+      status,
+    });
+  };
 
-    // Open WhatsApp
-    window.open(getWhatsAppLink(lead), "_blank");
+  const handleSendSingle = async (lead: LeadWithBuild) => {
+    if (!lead.phone) { toast.error("No phone number"); return; }
 
-    toast.success(`Message opened for ${lead.company_name}`);
+    if (waStatus !== "connected") {
+      toast.error("WhatsApp not connected — scan the QR first!");
+      return;
+    }
+
+    setSending(lead.id);
+    const message = buildMessage(lead);
+
+    try {
+      const res = await waFetch("/send", {
+        method: "POST",
+        body: JSON.stringify({ phone: lead.phone, message }),
+      });
+
+      if (res.success) {
+        await markSent(lead, message, "sent");
+        toast.success(`✅ Sent to ${lead.company_name}`);
+      } else {
+        await markSent(lead, message, "failed");
+        toast.error(`Failed: ${res.error}`);
+      }
+    } catch (err) {
+      await markSent(lead, message, "failed");
+      toast.error("Server error");
+    }
+
     setSending(null);
     fetchLeads();
   };
 
   const handleBulkSend = async () => {
     if (selected.length === 0) { toast.error("Select at least one lead"); return; }
+    if (waStatus !== "connected") { toast.error("WhatsApp not connected — scan the QR first!"); return; }
+
     setBulkSending(true);
+    const selectedLeads = filteredLeads.filter(l => selected.includes(l.id) && l.phone);
 
-    const selectedLeads = filteredLeads.filter(l => selected.includes(l.id));
-    let sent = 0;
+    const messages = selectedLeads.map(lead => ({
+      phone: lead.phone!,
+      message: buildMessage(lead),
+    }));
 
-    for (const lead of selectedLeads) {
-      if (!lead.phone) continue;
-      await supabase.from("leads").update({
-        whatsapp_sent: true,
-        whatsapp_sent_at: new Date().toISOString(),
-        status: "contacted",
-      }).eq("id", lead.id);
-
-      await supabase.from("whatsapp_messages").insert({
-        lead_id: lead.id,
-        build_id: lead.build?.id ?? null,
-        phone: lead.phone,
-        message: buildMessage(lead),
-        status: "sent",
+    try {
+      const res = await waFetch("/send-bulk", {
+        method: "POST",
+        body: JSON.stringify({ messages, delayMs: 3000 }),
       });
 
-      sent++;
+      if (res.success) {
+        // Optimistically mark all as sent
+        for (const lead of selectedLeads) {
+          await markSent(lead, buildMessage(lead), "sent");
+        }
+        toast.success(`🚀 Sending to ${selectedLeads.length} leads...`);
+      } else {
+        toast.error(`Failed: ${res.error}`);
+      }
+    } catch {
+      toast.error("Server error");
     }
 
-    // Open WhatsApp for each (with delay)
-    for (let i = 0; i < selectedLeads.length; i++) {
-      const lead = selectedLeads[i];
-      if (!lead.phone) continue;
-      setTimeout(() => {
-        window.open(getWhatsAppLink(lead), "_blank");
-      }, i * 800);
-    }
-
-    toast.success(`Opened ${sent} WhatsApp conversations!`);
     setSelected([]);
     setBulkSending(false);
     fetchLeads();
@@ -155,21 +234,16 @@ export default function WhatsAppPage() {
     const matchSearch = !search ||
       l.company_name.toLowerCase().includes(search.toLowerCase()) ||
       l.city.toLowerCase().includes(search.toLowerCase());
-
     const matchFilter =
       filter === "all" ? true :
       filter === "with-site" ? !!l.build?.output_url :
       filter === "no-site" ? !l.build?.output_url :
       filter === "not-sent" ? !l.whatsapp_sent : true;
-
     return matchSearch && matchFilter;
   });
 
   const toggleSelect = (id: string) =>
     setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-
-  const selectAll = () => setSelected(filteredLeads.map(l => l.id));
-  const clearAll = () => setSelected([]);
 
   const stats = {
     total: leads.length,
@@ -177,6 +251,14 @@ export default function WhatsAppPage() {
     sent: leads.filter(l => l.whatsapp_sent).length,
     notSent: leads.filter(l => !l.whatsapp_sent).length,
   };
+
+  // ─── Connection status UI ───────────────────────────────────────────────────
+  const statusConfig = {
+    disconnected: { color: "bg-red-50 border-red-200", dot: "bg-red-500", text: "text-red-700", label: "Disconnected" },
+    initializing: { color: "bg-amber-50 border-amber-200", dot: "bg-amber-500 animate-pulse", text: "text-amber-700", label: "Initializing..." },
+    qr_ready:     { color: "bg-blue-50 border-blue-200", dot: "bg-blue-500 animate-pulse", text: "text-blue-700", label: "Scan QR Code" },
+    connected:    { color: "bg-green-50 border-green-200", dot: "bg-green-500", text: "text-green-700", label: "Connected ✓" },
+  }[waStatus];
 
   return (
     <div className="animate-fade-in">
@@ -201,6 +283,68 @@ export default function WhatsAppPage() {
           </div>
         }
       />
+
+      {/* ── WhatsApp Connection Card ── */}
+      <Card className={`mb-6 border-2 ${statusConfig.color}`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className={`w-3 h-3 rounded-full ${statusConfig.dot}`} />
+            <div>
+              <p className={`text-sm font-semibold ${statusConfig.text}`}>{statusConfig.label}</p>
+              <p className="text-xs text-slate-500">
+                {waStatus === "disconnected" && "Click Initialize to connect your WhatsApp"}
+                {waStatus === "initializing" && "Starting up, please wait..."}
+                {waStatus === "qr_ready" && "Open WhatsApp on your phone → scan QR code below"}
+                {waStatus === "connected" && "Ready to send messages directly from BuildFactory"}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {waStatus === "connected" ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<ZapOff className="w-3.5 h-3.5" />}
+                onClick={handleDisconnect}
+              >
+                Disconnect
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                icon={initLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <QrCode className="w-3.5 h-3.5" />}
+                onClick={handleInit}
+                loading={initLoading}
+                disabled={waStatus === "initializing"}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                {waStatus === "initializing" ? "Initializing..." : "Initialize"}
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* QR Code */}
+        {waStatus === "qr_ready" && qrCode && (
+          <div className="mt-4 flex flex-col items-center gap-3 py-4 border-t border-blue-200">
+            <p className="text-sm font-medium text-blue-700">Scan with WhatsApp on your phone</p>
+            <img
+              src={qrCode}
+              alt="WhatsApp QR Code"
+              className="w-52 h-52 rounded-xl border-4 border-white shadow-lg"
+            />
+            <p className="text-xs text-slate-500">WhatsApp → More Options → Linked Devices → Link a Device</p>
+          </div>
+        )}
+
+        {waStatus === "initializing" && !qrCode && (
+          <div className="mt-4 flex items-center justify-center gap-2 py-4 border-t border-amber-200">
+            <Loader2 className="w-4 h-4 animate-spin text-amber-600" />
+            <p className="text-sm text-amber-700">Launching browser, QR will appear in a few seconds...</p>
+          </div>
+        )}
+      </Card>
 
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4 mb-6">
@@ -309,9 +453,9 @@ export default function WhatsAppPage() {
         </div>
 
         <div className="flex items-center gap-2 ml-auto">
-          <button onClick={selectAll} className="text-xs text-brand-600 hover:text-brand-700 font-medium">Select all</button>
+          <button onClick={() => setSelected(filteredLeads.map(l => l.id))} className="text-xs text-brand-600 hover:text-brand-700 font-medium">Select all</button>
           <span className="text-slate-300">·</span>
-          <button onClick={clearAll} className="text-xs text-slate-500 hover:text-slate-700 font-medium">Clear</button>
+          <button onClick={() => setSelected([])} className="text-xs text-slate-500 hover:text-slate-700 font-medium">Clear</button>
           <span className="text-xs text-slate-400">{filteredLeads.length} leads</span>
         </div>
       </div>
@@ -406,10 +550,10 @@ export default function WhatsAppPage() {
                         size="sm"
                         variant={lead.whatsapp_sent ? "secondary" : "primary"}
                         loading={sending === lead.id}
-                        disabled={!hasPhone}
+                        disabled={!hasPhone || waStatus !== "connected"}
                         icon={<Send className="w-3 h-3" />}
                         onClick={() => handleSendSingle(lead)}
-                        className={!lead.whatsapp_sent ? "bg-green-600 hover:bg-green-700 border-0" : ""}
+                        className={!lead.whatsapp_sent && waStatus === "connected" ? "bg-green-600 hover:bg-green-700 border-0" : ""}
                       >
                         {lead.whatsapp_sent ? "Resend" : "Send"}
                       </Button>
