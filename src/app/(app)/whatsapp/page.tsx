@@ -15,8 +15,8 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 
-const WA_SERVER = process.env.NEXT_PUBLIC_WA_SERVER_URL || "http://136.117.247.136:3001";
-const WA_KEY = process.env.NEXT_PUBLIC_WA_API_KEY || "buildfactory-secret-key";
+const WA_SERVER = "/api/wa";
+const WA_KEY = "";
 
 const DEFAULT_MESSAGE = `Ahlan 👋
 {{COMPANY_NAME}} 3endkom khedma top, walakin bla site web rah clients kay9elbo 3la les concurrents f Google.
@@ -52,8 +52,7 @@ export default function WhatsAppPage() {
 
   // ─── WA Server helpers ──────────────────────────────────────────────────────
   const waFetch = useCallback(async (path: string, options?: RequestInit) => {
-    const sep = path.includes("?") ? "&" : "?";
-    const res = await fetch(`${WA_SERVER}${path}${sep}key=${WA_KEY}`, {
+    const res = await fetch(`${WA_SERVER}${path}`, {
       ...options,
       headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
     });
