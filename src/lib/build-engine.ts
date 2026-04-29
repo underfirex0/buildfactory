@@ -232,6 +232,15 @@ function patchBusinessConfig(content: string, lead: Lead): string {
     [/(tagline:\s*")[^"]*(")/g, `$1Your trusted ${lead.category} in ${lead.city}$2`],
     [/(address:\s*")[^"]*(")/g, `$1${lead.city}$2`],
     [/(hero_subtitle:\s*")[^"]*(")/g, `$1Premium ${lead.category} services in ${lead.city}. Contact us today.$2`],
+    [/(tagline:\s*")[^"]*(")/g, `$1Your trusted ${lead.category} in ${lead.city}$2`],
+    [/(founding_year:\s*")[^"]*(")/g, `$12015$2`],
+    [/(booking_link:\s*")[^"]*(")/g, `$1tel:${phone}$2`],
+    [/(google_maps_link:\s*")[^"]*(")/g, `$1https://maps.google.com/?q=${encodeURIComponent(lead.company_name + ' ' + lead.city)}$2`],
+    [/(hours_weekday:\s*")[^"]*(")/g, `$1Mon – Fri: 9:00 AM – 7:00 PM$2`],
+    [/(hours_weekend:\s*")[^"]*(")/g, `$1Sat – Sun: 10:00 AM – 5:00 PM$2`],
+    [/(about_image:\s*")[^"]*(")/g, `$1https://images.unsplash.com/photo-1559339352-11d035aa65de?auto=format&fit=crop&q=85&w=900$2`],
+    [/(cinematic_image:\s*")[^"]*(")/g, `$1https://images.unsplash.com/photo-1600565193348-f74bd3c7ccdf?auto=format&fit=crop&q=85&w=2400$2`],
+    [/(experience_image:\s*")[^"]*(")/g, `$1https://images.unsplash.com/photo-1551218808-94e220e084d2?auto=format&fit=crop&q=85&w=900$2`],
     [/(hero_image:\s*")[^"]*(")/g, `$1${getHeroImage(lead.category)}$2`],
     [/(accent_color:\s*")[^"]*(")/g, `$1${getAccentColor(lead.category)}$2`],
   ];
@@ -317,3 +326,5 @@ function isTextFile(filename: string): boolean {
   const textExts = [".html", ".htm", ".css", ".js", ".ts", ".jsx", ".tsx", ".json", ".xml", ".txt", ".md", ".svg", ".php", ".env", ".yml", ".yaml", ".toml", ".njk", ".hbs", ".ejs"];
   return textExts.some((ext) => filename.toLowerCase().endsWith(ext));
 }
+// Note: patchBusinessConfig already handles business_name, city, phone, email, whatsapp
+// The restaurant template uses additional fields — extend the patch
