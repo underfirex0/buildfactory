@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
 import { processTemplate } from "@/lib/build-engine";
-import { deployToVercel } from "@/lib/vercel-deploy";
+import { deployToVercel, assignCustomDomain } from "@/lib/vercel-deploy";
 
 export const maxDuration = 60;
+
+const CUSTOM_DOMAIN = "yako.studio";
 
 export async function POST(req: NextRequest) {
   const supabase = createServiceClient();
@@ -43,22 +45,21 @@ export async function POST(req: NextRequest) {
     const outputZip = await processTemplate(templateBuffer, lead);
 
     // 4. Save ZIP to storage
-    const slug = lead.company_name.toLowerCase().replace(/\s+/g, "-");
+    const slug = lead.company_name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
     const outputPath = `${buildId}/${slug}-website.zip`;
     await supabase.storage.from("builds").upload(outputPath, outputZip, {
       contentType: "application/zip", upsert: true,
     });
 
-    // 5. Deploy to Vercel — use waitUntil pattern to avoid timeout
-    // Mark as done immediately with ZIP, then deploy async
+    // 5. Deploy to Vercel
     let outputUrl: string | null = null;
     let vercelDeploymentId: string | null = null;
 
     if (vercelToken) {
       try {
-        const siteName = `${slug}-${lead.city.toLowerCase().replace(/\s+/g, "-")}`;
+        const citySlug = lead.city.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+        const siteName = `${slug}-${citySlug}`;
 
-        // Set a 45s timeout for Vercel deploy to stay within limits
         const deployPromise = deployToVercel(outputZip, siteName, vercelToken);
         const timeoutPromise = new Promise<null>((resolve) =>
           setTimeout(() => resolve(null), 45000)
@@ -69,17 +70,35 @@ export async function POST(req: NextRequest) {
         if (result) {
           outputUrl = result.url;
           vercelDeploymentId = result.deploymentId;
+
+          // 6. Assign custom subdomain: businessname.yako.studio
+          try {
+            const subdomainSlug = slug
+              .replace(/[^a-z0-9-]/g, "")
+              .replace(/-+/g, "-")
+              .substring(0, 40);
+            const subdomain = `${subdomainSlug}.${CUSTOM_DOMAIN}`;
+
+            const customUrl = await assignCustomDomain(outputUrl, subdomain, vercelToken);
+
+            // Use custom domain URL if assignment succeeded
+            if (customUrl && customUrl.includes(CUSTOM_DOMAIN)) {
+              outputUrl = customUrl;
+              console.log(`[DOMAIN] Assigned ${customUrl}`);
+            }
+          } catch (domainErr: any) {
+            console.error("[DOMAIN] Failed to assign subdomain:", domainErr.message);
+            // Keep original Vercel URL as fallback
+          }
         } else {
-          // Timed out — mark as done with ZIP, Vercel might still be deploying
           console.log("[VERCEL] Deploy timed out — site may still be deploying");
         }
       } catch (deployErr: any) {
         console.error("[VERCEL DEPLOY ERROR]", deployErr.message);
-        // Don't fail the whole build — ZIP is still available
       }
     }
 
-    // 6. Mark build as done regardless
+    // 7. Mark build as done
     await supabase.from("builds").update({
       status: "done",
       output_path: outputPath,

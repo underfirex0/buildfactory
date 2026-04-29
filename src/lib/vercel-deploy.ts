@@ -41,10 +41,64 @@ export async function deployToVercel(
   // Wait for ready
   const ready = await waitForDeployment(deployment.id, token);
 
+  // Get the clean public URL (no git suffix)
+  const cleanUrl = getCleanUrl(ready, siteName);
+
   return {
     deploymentId: ready.id,
-    url: `https://${ready.url}`,
+    url: cleanUrl,
   };
+}
+
+/**
+ * Get the cleanest public URL from deployment
+ * Priority: alias without git suffix > project URL > fallback
+ */
+function getCleanUrl(deployment: VercelDeployment, siteName: string): string {
+  // Try aliases first — the clean one doesn't have random suffix
+  if (deployment.alias && deployment.alias.length > 0) {
+    // Find the shortest alias (cleanest URL, no git hash suffix)
+    const sorted = [...deployment.alias].sort((a, b) => a.length - b.length);
+    const clean = sorted.find(a => !a.includes("git") && !a.includes(".now.sh"));
+    if (clean) return `https://${clean}`;
+    return `https://${sorted[0]}`;
+  }
+
+  // Fallback to deployment URL
+  return `https://${deployment.url}`;
+}
+
+/**
+ * Assign a custom subdomain alias to a deployment
+ * e.g. businessname.yako.studio
+ */
+export async function assignCustomDomain(
+  deploymentUrl: string,
+  subdomain: string,
+  token: string
+): Promise<string> {
+  const alias = subdomain.includes(".") ? subdomain : `${subdomain}.yako.studio`;
+
+  // Strip https:// from deployment URL
+  const cleanDeploymentUrl = deploymentUrl.replace("https://", "");
+
+  const res = await fetch(`${VERCEL_API}/v2/deployments/${cleanDeploymentUrl}/aliases`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ alias }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    console.error(`Failed to assign alias ${alias}: ${err}`);
+    // Don't throw — return the original URL as fallback
+    return deploymentUrl;
+  }
+
+  return `https://${alias}`;
 }
 
 /**
@@ -100,7 +154,6 @@ async function uploadFiles(
       body: new Uint8Array(content),
     });
 
-    // 200 = uploaded, 409 = already exists (both are fine)
     if (!res.ok && res.status !== 409) {
       const err = await res.text();
       console.error(`Failed to upload ${filename}: ${err}`);
@@ -174,7 +227,10 @@ async function waitForDeployment(
     const deployment: VercelDeployment = await res.json();
 
     if (deployment.readyState === "READY") return deployment;
-    if (deployment.readyState === "ERROR" || deployment.readyState === "CANCELED") {
+    if (
+      deployment.readyState === "ERROR" ||
+      deployment.readyState === "CANCELED"
+    ) {
       throw new Error(`Vercel deployment ${deployment.readyState}`);
     }
 
