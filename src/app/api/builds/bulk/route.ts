@@ -5,6 +5,8 @@ import { deployToVercel } from "@/lib/vercel-deploy";
 
 export const maxDuration = 60;
 
+const CUSTOM_DOMAIN = "yako.studio";
+
 export async function POST(req: NextRequest) {
   const supabase = createServiceClient();
   const vercelToken = process.env.VERCEL_API_TOKEN;
@@ -33,7 +35,7 @@ export async function POST(req: NextRequest) {
 
   const { data: fileData, error: storageErr } = await supabase.storage
     .from("templates").download(template.file_path);
-  if (storageErr || !fileData) return NextResponse.json({ error: `Failed to fetch template` }, { status: 500 });
+  if (storageErr || !fileData) return NextResponse.json({ error: "Failed to fetch template" }, { status: 500 });
 
   const templateBuffer = await fileData.arrayBuffer();
 
@@ -52,9 +54,15 @@ export async function POST(req: NextRequest) {
 
       try {
         const outputZip = await processTemplate(templateBuffer, lead);
-        const slug = lead.company_name.toLowerCase().replace(/\s+/g, "-");
-        const outputPath = `${buildRecord.id}/${slug}-website.zip`;
 
+        const slug = lead.company_name
+          .toLowerCase()
+          .replace(/\s+/g, "-")
+          .replace(/[^a-z0-9-]/g, "")
+          .replace(/-+/g, "-")
+          .substring(0, 40);
+
+        const outputPath = `${buildRecord.id}/${slug}-website.zip`;
         await supabase.storage.from("builds").upload(outputPath, outputZip, {
           contentType: "application/zip", upsert: true,
         });
@@ -64,8 +72,14 @@ export async function POST(req: NextRequest) {
 
         if (vercelToken) {
           try {
-            const siteName = `${slug}-${lead.city.toLowerCase().replace(/\s+/g, "-")}`;
-            const result = await deployToVercel(outputZip, siteName, vercelToken);
+            const citySlug = lead.city
+              .toLowerCase()
+              .replace(/\s+/g, "-")
+              .replace(/[^a-z0-9-]/g, "");
+            const siteName = `${slug}-${citySlug}`;
+            const alias = `${slug}.${CUSTOM_DOMAIN}`;
+
+            const result = await deployToVercel(outputZip, siteName, vercelToken, alias);
             outputUrl = result.url;
             deploymentId = result.deploymentId;
           } catch (deployErr: any) {
@@ -74,9 +88,12 @@ export async function POST(req: NextRequest) {
         }
 
         await supabase.from("builds").update({
-          status: "done", output_path: outputPath,
-          output_url: outputUrl, netlify_site_id: deploymentId,
-          completed_at: new Date().toISOString(), error_msg: null,
+          status: "done",
+          output_path: outputPath,
+          output_url: outputUrl,
+          netlify_site_id: deploymentId,
+          completed_at: new Date().toISOString(),
+          error_msg: null,
         }).eq("id", buildRecord.id);
 
         return {

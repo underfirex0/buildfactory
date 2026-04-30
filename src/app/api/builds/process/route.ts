@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
 import { processTemplate } from "@/lib/build-engine";
-import { deployToVercel, assignCustomDomain } from "@/lib/vercel-deploy";
+import { deployToVercel } from "@/lib/vercel-deploy";
 
 export const maxDuration = 60;
 
@@ -41,26 +41,39 @@ export async function POST(req: NextRequest) {
 
     const templateBuffer = await fileData.arrayBuffer();
 
-    // 3. Process template (replace placeholders)
+    // 3. Process template
     const outputZip = await processTemplate(templateBuffer, lead);
 
     // 4. Save ZIP to storage
-    const slug = lead.company_name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+    const slug = lead.company_name
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9-]/g, "")
+      .replace(/-+/g, "-")
+      .substring(0, 40);
+
     const outputPath = `${buildId}/${slug}-website.zip`;
     await supabase.storage.from("builds").upload(outputPath, outputZip, {
       contentType: "application/zip", upsert: true,
     });
 
-    // 5. Deploy to Vercel
+    // 5. Deploy to Vercel with alias set at creation time
     let outputUrl: string | null = null;
     let vercelDeploymentId: string | null = null;
 
     if (vercelToken) {
       try {
-        const citySlug = lead.city.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+        const citySlug = lead.city
+          .toLowerCase()
+          .replace(/\s+/g, "-")
+          .replace(/[^a-z0-9-]/g, "");
         const siteName = `${slug}-${citySlug}`;
 
-        const deployPromise = deployToVercel(outputZip, siteName, vercelToken);
+        // Build alias: businessname.yako.studio
+        const alias = `${slug}.${CUSTOM_DOMAIN}`;
+        console.log(`[BUILD] Deploying ${siteName} with alias ${alias}`);
+
+        const deployPromise = deployToVercel(outputZip, siteName, vercelToken, alias);
         const timeoutPromise = new Promise<null>((resolve) =>
           setTimeout(() => resolve(null), 45000)
         );
@@ -70,35 +83,16 @@ export async function POST(req: NextRequest) {
         if (result) {
           outputUrl = result.url;
           vercelDeploymentId = result.deploymentId;
-
-          // 6. Assign custom subdomain: businessname.yako.studio
-          try {
-            const subdomainSlug = slug
-              .replace(/[^a-z0-9-]/g, "")
-              .replace(/-+/g, "-")
-              .substring(0, 40);
-            const subdomain = `${subdomainSlug}.${CUSTOM_DOMAIN}`;
-
-            const customUrl = await assignCustomDomain(outputUrl, subdomain, vercelToken);
-
-            // Use custom domain URL if assignment succeeded
-            if (customUrl && customUrl.includes(CUSTOM_DOMAIN)) {
-              outputUrl = customUrl;
-              console.log(`[DOMAIN] Assigned ${customUrl}`);
-            }
-          } catch (domainErr: any) {
-            console.error("[DOMAIN] Failed to assign subdomain:", domainErr.message);
-            // Keep original Vercel URL as fallback
-          }
+          console.log(`[BUILD] Done — URL: ${outputUrl}`);
         } else {
-          console.log("[VERCEL] Deploy timed out — site may still be deploying");
+          console.log("[VERCEL] Deploy timed out");
         }
       } catch (deployErr: any) {
         console.error("[VERCEL DEPLOY ERROR]", deployErr.message);
       }
     }
 
-    // 7. Mark build as done
+    // 6. Mark build as done
     await supabase.from("builds").update({
       status: "done",
       output_path: outputPath,

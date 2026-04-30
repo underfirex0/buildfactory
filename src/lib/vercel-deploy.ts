@@ -23,81 +23,40 @@ interface VercelFile {
 
 /**
  * Deploy a ZIP buffer as a new Vercel project
+ * Pass alias to set custom domain at creation time
  */
 export async function deployToVercel(
   zipBuffer: Uint8Array,
   siteName: string,
-  token: string
+  token: string,
+  alias?: string
 ): Promise<{ deploymentId: string; url: string }> {
-  // Extract files from ZIP
   const files = await extractZipFiles(zipBuffer);
-
-  // Upload files to Vercel
   const uploadedFiles = await uploadFiles(files, token);
-
-  // Create deployment
-  const deployment = await createDeployment(siteName, uploadedFiles, token);
-
-  // Wait for ready
+  const deployment = await createDeployment(siteName, uploadedFiles, token, alias);
   const ready = await waitForDeployment(deployment.id, token);
 
-  // Get the clean public URL (no git suffix)
-  const cleanUrl = getCleanUrl(ready, siteName);
+  // If alias was set, use it as the final URL
+  const finalUrl = alias ? `https://${alias}` : getCleanUrl(ready);
 
   return {
     deploymentId: ready.id,
-    url: cleanUrl,
+    url: finalUrl,
   };
 }
 
 /**
  * Get the cleanest public URL from deployment
- * Priority: alias without git suffix > project URL > fallback
  */
-function getCleanUrl(deployment: VercelDeployment, siteName: string): string {
-  // Try aliases first — the clean one doesn't have random suffix
+function getCleanUrl(deployment: VercelDeployment): string {
   if (deployment.alias && deployment.alias.length > 0) {
-    // Find the shortest alias (cleanest URL, no git hash suffix)
     const sorted = [...deployment.alias].sort((a, b) => a.length - b.length);
     const clean = sorted.find(a => !a.includes("git") && !a.includes(".now.sh"));
     if (clean) return `https://${clean}`;
     return `https://${sorted[0]}`;
   }
-
-  // Fallback to deployment URL
   return `https://${deployment.url}`;
 }
-
-/**
- * Assign a custom subdomain alias to a deployment
- * e.g. businessname.yako.studio
- */
-export async function assignCustomDomain(
-  deploymentId: string,
-  subdomain: string,
-  token: string
-): Promise<string> {
-  const alias = subdomain.includes(".") ? subdomain : `${subdomain}.yako.studio`;
-
-  const res = await fetch(`${VERCEL_API}/v2/deployments/${deploymentId}/aliases`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ alias }),
-  });
-
-  if (!res.ok) {
-    const err = await res.text();
-    console.error(`[DOMAIN] Failed to assign ${alias}: ${err}`);
-    return "";
-  }
-
-  console.log(`[DOMAIN] Assigned ${alias} ✅`);
-  return `https://${alias}`;
-}
-
 
 /**
  * Extract files from ZIP, stripping single root folder if present
@@ -108,7 +67,6 @@ async function extractZipFiles(
   const zip = await JSZip.loadAsync(zipBuffer);
   const files: Record<string, Buffer> = {};
 
-  // Detect and strip single root folder
   const allFiles = Object.keys(zip.files).filter((f) => !zip.files[f].dir);
   const rootFolders = new Set(allFiles.map((f) => f.split("/")[0]));
   const hasSingleRoot =
@@ -164,12 +122,13 @@ async function uploadFiles(
 }
 
 /**
- * Create a Vercel deployment
+ * Create a Vercel deployment with optional alias set at creation time
  */
 async function createDeployment(
   siteName: string,
   files: VercelFile[],
-  token: string
+  token: string,
+  alias?: string
 ): Promise<VercelDeployment> {
   const sanitized = siteName
     .toLowerCase()
@@ -180,23 +139,30 @@ async function createDeployment(
 
   const projectName = `${sanitized}-${Date.now()}`;
 
+  const body: any = {
+    name: projectName,
+    files,
+    projectSettings: {
+      framework: null,
+      outputDirectory: null,
+      buildCommand: null,
+      installCommand: null,
+    },
+    target: "production",
+  };
+
+  if (alias) {
+    body.alias = [alias];
+    console.log(`[DOMAIN] Setting alias at creation: ${alias}`);
+  }
+
   const res = await fetch(`${VERCEL_API}/v13/deployments`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      name: projectName,
-      files: files,
-      projectSettings: {
-        framework: null,
-        outputDirectory: null,
-        buildCommand: null,
-        installCommand: null,
-      },
-      target: "production",
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
