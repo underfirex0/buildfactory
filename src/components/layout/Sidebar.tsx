@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, FileCode2, Users, Hammer, Zap, ChevronRight, Globe, MessageCircle } from "lucide-react";
+import { LayoutDashboard, FileCode2, Users, Hammer, Zap, ChevronRight, Globe, MessageCircle, Inbox } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
