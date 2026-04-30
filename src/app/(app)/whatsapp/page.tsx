@@ -257,7 +257,7 @@ export default function WhatsAppPage() {
     initializing: { color: "bg-amber-50 border-amber-200", dot: "bg-amber-500 animate-pulse", text: "text-amber-700", label: "Initializing..." },
     qr_ready:     { color: "bg-blue-50 border-blue-200", dot: "bg-blue-500 animate-pulse", text: "text-blue-700", label: "Scan QR Code" },
     connected:    { color: "bg-green-50 border-green-200", dot: "bg-green-500", text: "text-green-700", label: "Connected ✓" },
-  }[waStatus];
+  }[waStatus] ?? { color: "bg-red-50 border-red-200", dot: "bg-red-500", text: "text-red-700", label: "Disconnected" };
 
   return (
     <div className="animate-fade-in">
