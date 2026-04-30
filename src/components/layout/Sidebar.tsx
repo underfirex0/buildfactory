@@ -12,6 +12,7 @@ const navItems = [
   { href: "/build-queue", label: "Build Queue", icon: Hammer },
   { href: "/sites", label: "Live Sites", icon: Globe, badge: "LIVE", badgeColor: "bg-emerald-100 text-emerald-700" },
   { href: "/whatsapp", label: "WhatsApp", icon: MessageCircle, badge: "NEW", badgeColor: "bg-green-100 text-green-700" },
+  { href: "/inbox", label: "Inbox", icon: MessageCircle, badge: "AI", badgeColor: "bg-purple-100 text-purple-700" },
 ];
 
 export function Sidebar() {
