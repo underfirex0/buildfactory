@@ -83,7 +83,6 @@ async function scrapeGoogleMaps(niche: string, city: string, maxResults: number)
         includeImages: true,
         maxImages: 8,
         reviewsSort: "newest",
-        countryCode: "MA",
       }),
     }
   );
