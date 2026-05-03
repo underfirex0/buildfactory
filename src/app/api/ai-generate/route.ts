@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
-        max_tokens: 4000,
+        max_tokens: 6000,
         messages: [
           {
             role: "user",
@@ -134,6 +134,10 @@ export async function POST(req: NextRequest) {
     // Remove markdown code blocks if Claude wrapped it
     html = html.replace(/^```html\n?/, "").replace(/^```\n?/, "").replace(/\n?```$/, "").trim();
 
+    // Close HTML if truncated
+    if (html && !html.includes("</html>")) {
+      html += "\n</body></html>";
+    }
     if (!html || !html.includes("<!DOCTYPE")) {
       return NextResponse.json({ error: "Claude did not return valid HTML" }, { status: 500 });
     }
