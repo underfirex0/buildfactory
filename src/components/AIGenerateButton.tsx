@@ -31,11 +31,11 @@ export function AIGenerateButton({ lead, onGenerated }: AIGenerateButtonProps) {
         body: JSON.stringify({ leadId: lead.id }),
       });
 
+      const text = await res.text();
       let data;
       try {
-        data = await res.json();
+        data = JSON.parse(text);
       } catch (parseErr) {
-        const text = await res.text();
         toast.error("Parse error: " + text.slice(0, 100), { id: "ai-gen" });
         setGenerating(false);
         return;
