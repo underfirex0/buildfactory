@@ -7,9 +7,17 @@ import { Button } from "@/components/ui/Button";
 import { supabase } from "@/lib/supabase";
 import {
   Search, MapPin, Phone, Mail, Globe, Star,
-  Plus, CheckCircle2, Loader2, Sparkles, Building2,
+  Plus, CheckCircle2, Loader2, Building2, Sparkles,
 } from "lucide-react";
 import toast from "react-hot-toast";
+
+interface SocialData {
+  instagram: string;
+  facebook: string;
+  tiktok: string;
+  linkedin: string;
+  youtube: string;
+}
 
 interface ScrapedBusiness {
   name: string;
@@ -36,6 +44,8 @@ interface ScrapedBusiness {
   sources: string[];
   selected: boolean;
   added: boolean;
+  loadingSocials: boolean;
+  socialsFound: boolean;
 }
 
 interface ScrapeStats {
@@ -88,29 +98,21 @@ export default function ScraperPage() {
     setResults([]);
     setStats(null);
     setProgress(0);
-
     const targetCity = city === "custom" ? customCity : city;
 
     try {
       setProgressMsg(`🔍 Scraping Google Maps for ${niche} in ${targetCity}...`);
       setProgress(15);
 
-      const progressInterval = setInterval(() => {
-        setProgress(p => Math.min(p + 2, 85));
-      }, 2000);
+      const interval = setInterval(() => setProgress(p => Math.min(p + 2, 85)), 2000);
 
       const res = await fetch("/api/scrape", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          niche,
-          city: targetCity,
-          maxResults: parseInt(maxResults),
-          websiteFilter,
-        }),
+        body: JSON.stringify({ niche, city: targetCity, maxResults: parseInt(maxResults), websiteFilter }),
       });
 
-      clearInterval(progressInterval);
+      clearInterval(interval);
       setProgress(95);
       setProgressMsg("Processing results...");
 
@@ -118,9 +120,7 @@ export default function ScraperPage() {
       if (!res.ok) throw new Error(data.error || "Scraping failed");
 
       const businesses: ScrapedBusiness[] = (data.results || []).map((b: any) => ({
-        ...b,
-        selected: true,
-        added: false,
+        ...b, selected: true, added: false, loadingSocials: false, socialsFound: false,
       }));
 
       setResults(businesses);
@@ -133,8 +133,63 @@ export default function ScraperPage() {
       toast.error(e.message || "Scraping failed");
       setProgressMsg("❌ " + e.message);
     }
-
     setScraping(false);
+  };
+
+  // ─── Find socials for a specific business ──────────────────────────────────
+  const handleFindSocials = async (idx: number) => {
+    const biz = results[idx];
+    setResults(prev => prev.map((r, i) => i === idx ? { ...r, loadingSocials: true } : r));
+
+    try {
+      const res = await fetch("/api/find-socials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ businessName: biz.name, city: biz.city }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        const { instagram, facebook, tiktok, linkedin, youtube } = data.social;
+        const found = !!(instagram || facebook || tiktok || linkedin || youtube);
+
+        setResults(prev => prev.map((r, i) => i === idx ? {
+          ...r,
+          instagram: instagram || r.instagram,
+          facebook: facebook || r.facebook,
+          tiktok: tiktok || r.tiktok,
+          linkedin: linkedin || r.linkedin,
+          youtube: youtube || r.youtube,
+          loadingSocials: false,
+          socialsFound: true,
+        } : r));
+
+        if (found) {
+          toast.success(`Found socials for ${biz.name}! 🎉`);
+        } else {
+          toast(`No social profiles found for ${biz.name}`, { icon: "🤷" });
+        }
+      } else {
+        toast.error(data.error || "Failed to find socials");
+        setResults(prev => prev.map((r, i) => i === idx ? { ...r, loadingSocials: false } : r));
+      }
+    } catch {
+      toast.error("Failed to find socials");
+      setResults(prev => prev.map((r, i) => i === idx ? { ...r, loadingSocials: false } : r));
+    }
+  };
+
+  // ─── Find socials for ALL businesses ──────────────────────────────────────
+  const handleFindAllSocials = async () => {
+    toast("Finding socials for all businesses... this may take a few minutes", { icon: "🔍", duration: 5000 });
+    for (let i = 0; i < results.length; i++) {
+      if (!results[i].socialsFound) {
+        await handleFindSocials(i);
+        await new Promise(r => setTimeout(r, 1000));
+      }
+    }
+    toast.success("Done finding all socials!");
   };
 
   const toggleSelect = (idx: number) => {
@@ -185,13 +240,25 @@ export default function ScraperPage() {
     <div className="animate-fade-in">
       <PageHeader
         title="Business Scraper"
-        description="Scrape businesses from Google Maps + Social Media — filter by website presence"
+        description="Scrape businesses from Google Maps + find Social Media profiles"
         actions={
-          selectedCount > 0 ? (
-            <Button icon={<Plus className="w-3.5 h-3.5" />} onClick={handleAddToLeads} loading={adding} className="bg-green-600 hover:bg-green-700">
-              Add {selectedCount} to Leads
-            </Button>
-          ) : undefined
+          <div className="flex items-center gap-2">
+            {results.length > 0 && !results.every(r => r.socialsFound) && (
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<Sparkles className="w-3.5 h-3.5" />}
+                onClick={handleFindAllSocials}
+              >
+                Find All Socials
+              </Button>
+            )}
+            {selectedCount > 0 && (
+              <Button icon={<Plus className="w-3.5 h-3.5" />} onClick={handleAddToLeads} loading={adding} className="bg-green-600 hover:bg-green-700">
+                Add {selectedCount} to Leads
+              </Button>
+            )}
+          </div>
         }
       />
 
@@ -230,7 +297,6 @@ export default function ScraperPage() {
               <option value="10">10 businesses</option>
               <option value="20">20 businesses</option>
               <option value="50">50 businesses</option>
-              <option value="100">100 businesses</option>
             </select>
           </div>
           <Button icon={scraping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />} onClick={handleScrape} loading={scraping} className="h-9">
@@ -238,7 +304,6 @@ export default function ScraperPage() {
           </Button>
         </div>
 
-        {/* Progress */}
         {(scraping || progress > 0) && (
           <div className="mt-4">
             <div className="flex items-center justify-between mb-1">
@@ -252,15 +317,15 @@ export default function ScraperPage() {
         )}
       </Card>
 
-      {/* Stats Bar */}
+      {/* Stats */}
       {stats && (
         <div className="grid grid-cols-5 gap-3 mb-6">
           {[
             { label: "Total Found", value: stats.total_found, color: "text-slate-700", bg: "bg-slate-50" },
-            { label: "No Website 🎯", value: stats.without_website, color: "text-red-600", bg: "bg-red-50" },
+            { label: "🎯 No Website", value: stats.without_website, color: "text-red-600", bg: "bg-red-50" },
             { label: "Has Website", value: stats.with_website, color: "text-blue-600", bg: "bg-blue-50" },
             { label: "With Phone", value: stats.with_phone, color: "text-green-600", bg: "bg-green-50" },
-            { label: "Has Social", value: stats.with_social, color: "text-purple-600", bg: "bg-purple-50" },
+            { label: "Has Social", value: results.filter(r => r.instagram || r.facebook || r.tiktok).length, color: "text-purple-600", bg: "bg-purple-50" },
           ].map(s => (
             <Card key={s.label} padding="md" className={s.bg}>
               <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
@@ -292,11 +357,11 @@ export default function ScraperPage() {
               <Card key={idx} padding="none" className={`overflow-hidden transition-all ${biz.added ? "opacity-50" : ""} ${biz.selected && !biz.added ? "ring-2 ring-brand-400" : ""}`}>
                 <div className="flex">
                   {/* Photo */}
-                  <div className="w-36 h-32 flex-shrink-0 bg-surface-100 relative overflow-hidden">
+                  <div className="w-36 h-auto min-h-32 flex-shrink-0 bg-surface-100 relative overflow-hidden">
                     {biz.photos?.[0] ? (
-                      <img src={biz.photos[0]} alt={biz.name} className="w-full h-full object-cover" />
+                      <img src={biz.photos[0]} alt={biz.name} className="w-full h-full object-cover absolute inset-0" />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center">
+                      <div className="w-full h-full flex items-center justify-center p-4">
                         <Building2 className="w-8 h-8 text-slate-300" />
                       </div>
                     )}
@@ -326,22 +391,44 @@ export default function ScraperPage() {
                         </div>
 
                         <div className="flex flex-wrap gap-x-3 gap-y-0.5 mb-2">
-                          {biz.address && <span className="flex items-center gap-1 text-[11px] text-slate-500"><MapPin className="w-2.5 h-2.5" />{biz.address.slice(0, 50)}</span>}
+                          {biz.address && <span className="flex items-center gap-1 text-[11px] text-slate-500"><MapPin className="w-2.5 h-2.5" />{biz.address.slice(0, 60)}</span>}
                           {biz.phone && <span className="flex items-center gap-1 text-[11px] text-slate-600 font-medium"><Phone className="w-2.5 h-2.5" />{biz.phone}</span>}
                           {biz.email && <span className="flex items-center gap-1 text-[11px] text-slate-500"><Mail className="w-2.5 h-2.5" />{biz.email}</span>}
                           {biz.website && <a href={biz.website} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-[11px] text-brand-600"><Globe className="w-2.5 h-2.5" />Website</a>}
                         </div>
 
-                        {/* Social + Tags */}
-                        <div className="flex flex-wrap gap-1">
-                          {biz.instagram && <a href={biz.instagram} target="_blank" rel="noreferrer" className="text-[10px] bg-pink-50 border border-pink-200 text-pink-600 px-1.5 py-0.5 rounded-full hover:bg-pink-100">📸 Instagram</a>}
-                          {biz.facebook && <a href={biz.facebook} target="_blank" rel="noreferrer" className="text-[10px] bg-blue-50 border border-blue-200 text-blue-600 px-1.5 py-0.5 rounded-full hover:bg-blue-100">👤 Facebook</a>}
-                          {biz.tiktok && <a href={biz.tiktok} target="_blank" rel="noreferrer" className="text-[10px] bg-slate-50 border border-slate-200 text-slate-600 px-1.5 py-0.5 rounded-full hover:bg-slate-100">🎵 TikTok</a>}
-                          {biz.linkedin && <a href={biz.linkedin} target="_blank" rel="noreferrer" className="text-[10px] bg-blue-50 border border-blue-200 text-blue-700 px-1.5 py-0.5 rounded-full hover:bg-blue-100">💼 LinkedIn</a>}
-                          {biz.youtube && <a href={biz.youtube} target="_blank" rel="noreferrer" className="text-[10px] bg-red-50 border border-red-200 text-red-600 px-1.5 py-0.5 rounded-full hover:bg-red-100">▶️ YouTube</a>}
+                        {/* Social Links */}
+                        <div className="flex flex-wrap gap-1 mb-2">
+                          {biz.instagram && <a href={biz.instagram} target="_blank" rel="noreferrer" className="text-[10px] bg-pink-50 border border-pink-200 text-pink-600 px-1.5 py-0.5 rounded-full">📸 Instagram</a>}
+                          {biz.facebook && <a href={biz.facebook} target="_blank" rel="noreferrer" className="text-[10px] bg-blue-50 border border-blue-200 text-blue-600 px-1.5 py-0.5 rounded-full">👤 Facebook</a>}
+                          {biz.tiktok && <a href={biz.tiktok} target="_blank" rel="noreferrer" className="text-[10px] bg-slate-50 border border-slate-200 text-slate-600 px-1.5 py-0.5 rounded-full">🎵 TikTok</a>}
+                          {biz.linkedin && <a href={biz.linkedin} target="_blank" rel="noreferrer" className="text-[10px] bg-blue-50 border border-blue-200 text-blue-700 px-1.5 py-0.5 rounded-full">💼 LinkedIn</a>}
+                          {biz.youtube && <a href={biz.youtube} target="_blank" rel="noreferrer" className="text-[10px] bg-red-50 border border-red-200 text-red-600 px-1.5 py-0.5 rounded-full">▶️ YouTube</a>}
+                        </div>
+
+                        {/* Data tags + Find Socials button */}
+                        <div className="flex flex-wrap gap-1 items-center">
                           {biz.photos?.length > 0 && <span className="text-[10px] bg-indigo-50 border border-indigo-200 text-indigo-600 px-1.5 py-0.5 rounded-full">{biz.photos.length} photos</span>}
                           {biz.reviews?.length > 0 && <span className="text-[10px] bg-green-50 border border-green-200 text-green-600 px-1.5 py-0.5 rounded-full">{biz.reviews.length} reviews</span>}
                           {biz.opening_hours?.length > 0 && <span className="text-[10px] bg-amber-50 border border-amber-200 text-amber-600 px-1.5 py-0.5 rounded-full">⏰ Hours</span>}
+
+                          {/* Find Socials button */}
+                          {!biz.socialsFound && !biz.instagram && !biz.facebook && (
+                            <button
+                              onClick={() => handleFindSocials(idx)}
+                              disabled={biz.loadingSocials}
+                              className="flex items-center gap-1 text-[10px] font-medium text-purple-600 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-full hover:bg-purple-100 transition-all disabled:opacity-50 ml-1"
+                            >
+                              {biz.loadingSocials ? (
+                                <><Loader2 className="w-2.5 h-2.5 animate-spin" /> Finding...</>
+                              ) : (
+                                <><Sparkles className="w-2.5 h-2.5" /> Find Socials</>
+                              )}
+                            </button>
+                          )}
+                          {biz.socialsFound && !biz.instagram && !biz.facebook && !biz.tiktok && (
+                            <span className="text-[10px] text-slate-400 ml-1">No social profiles found</span>
+                          )}
                         </div>
                       </div>
 
@@ -377,7 +464,7 @@ export default function ScraperPage() {
           </div>
           <p className="text-sm font-semibold text-slate-700 mb-2">Ready to scrape</p>
           <p className="text-xs text-slate-400 max-w-sm mx-auto mb-4">
-            Select business type, city, and filter. The <strong>"No website"</strong> filter finds your best leads — businesses that need you most!
+            Scrape businesses from Google Maps, then click <strong>"Find Socials"</strong> on each business to search Instagram, Facebook, TikTok, LinkedIn & YouTube.
           </p>
           <div className="flex items-center justify-center gap-4 text-xs text-slate-400">
             <span>📍 Google Maps</span>
@@ -385,6 +472,7 @@ export default function ScraperPage() {
             <span>👤 Facebook</span>
             <span>🎵 TikTok</span>
             <span>💼 LinkedIn</span>
+            <span>▶️ YouTube</span>
           </div>
         </Card>
       )}
