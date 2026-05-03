@@ -25,7 +25,6 @@ export async function POST(req: NextRequest) {
           maxPagesPerQuery: 1,
           resultsPerPage: 10,
           languageCode: "fr",
-          countryCode: "MA",
         }),
       }
     );
