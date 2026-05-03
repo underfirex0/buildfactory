@@ -73,15 +73,17 @@ export async function POST(req: NextRequest) {
     console.log(`[AI Deploy] Deployed! URL: ${liveUrl}`);
 
     // Save to builds table
-    await supabase.from("builds").insert({
-      lead_id: leadId,
-      business_name: lead.company_name,
-      city: lead.city,
-      template_name: "AI Generated",
-      status: "completed",
-      deployment_url: liveUrl,
-      vercel_deployment_id: deployData.id,
-    }).catch(() => {});
+    try {
+      await supabase.from("builds").insert({
+        lead_id: leadId,
+        business_name: lead.company_name,
+        city: lead.city,
+        template_name: "AI Generated",
+        status: "completed",
+        deployment_url: liveUrl,
+        vercel_deployment_id: deployData.id,
+      });
+    } catch {}
 
     return NextResponse.json({
       success: true,
