@@ -130,20 +130,32 @@ async function waitForResults(runId: string, maxWait = 70000): Promise<any[]> {
 
 function parseBusinessData(raw: any): any {
   const photos: string[] = [];
-  if (raw.images?.length) {
-    raw.images.slice(0, 8).forEach((img: any) => {
-      const url = img.imageUrl || img.url || (typeof img === "string" ? img : null);
-      if (url?.startsWith("http")) photos.push(url);
+// Try imageUrls array first (main field)
+if (raw.imageUrls?.length) {
+  raw.imageUrls.slice(0, 8).forEach((url: string) => {
+    if (url?.startsWith("http")) photos.push(url);
+  });
+}
+// Fallback to imageUrl single field
+if (photos.length === 0 && raw.imageUrl) {
+  photos.push(raw.imageUrl);
+}
+// Also get photos from reviews
+if (raw.reviews?.length) {
+  raw.reviews.forEach((r: any) => {
+    r.reviewImageUrls?.forEach((url: string) => {
+      if (url?.startsWith("http") && photos.length < 12) photos.push(url);
     });
-  }
+  });
+}
   const reviews: any[] = [];
   if (raw.reviews?.length) {
     raw.reviews.slice(0, 5).forEach((r: any) => {
       if (r.text?.length > 10) reviews.push({
-        author: r.name || r.publisherName || "Client",
-        rating: r.stars || r.rating || 5,
-        text: r.text,
-        time: r.publishedAtDate || "",
+        author: r.name || "Client",
+        rating: r.stars || 5,
+        text: r.textTranslated || r.text,
+        time: r.publishAt || "",
         avatar: r.reviewerPhotoUrl || "",
       });
     });
@@ -154,6 +166,24 @@ function parseBusinessData(raw: any): any {
   }
   const services: string[] = [];
   if (raw.categories?.length) raw.categories.slice(0, 8).forEach((c: string) => services.push(c));
+// Extract services from additionalInfo
+if (raw.additionalInfo) {
+  Object.entries(raw.additionalInfo).forEach(([section, items]: [string, any]) => {
+    if (Array.isArray(items)) {
+      items.forEach((item: any) => {
+        Object.entries(item).forEach(([key, val]) => {
+          if (val === true && services.length < 15) services.push(key);
+        });
+      });
+    }
+  });
+}
+// Add review tags as services too
+if (raw.reviewsTags?.length) {
+  raw.reviewsTags.slice(0, 5).forEach((t: any) => {
+    if (t.title && services.length < 15) services.push(t.title);
+  });
+}
 
   let instagram = raw.instagram || "";
   let facebook = raw.facebook || "";
