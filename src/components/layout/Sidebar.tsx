@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, FileCode2, Users, Hammer, Zap, ChevronRight, Globe, MessageCircle, Inbox } from "lucide-react";
+import { LayoutDashboard, FileCode2, Users, Hammer, Zap, ChevronRight, Globe, MessageCircle, Inbox, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -13,6 +13,7 @@ const navItems = [
   { href: "/sites", label: "Live Sites", icon: Globe, badge: "LIVE", badgeColor: "bg-emerald-100 text-emerald-700" },
   { href: "/whatsapp", label: "WhatsApp", icon: MessageCircle, badge: "NEW", badgeColor: "bg-green-100 text-green-700" },
   { href: "/inbox", label: "Inbox", icon: Inbox, badge: "AI", badgeColor: "bg-purple-100 text-purple-700" },
+  { href: "/scraper", label: "Scraper", icon: Search, badge: "NEW", badgeColor: "bg-blue-100 text-blue-700" },
 ];
 
 export function Sidebar() {
