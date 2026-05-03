@@ -118,12 +118,18 @@ export async function POST(req: NextRequest) {
     });
 
     if (!response.ok) {
-      const err = await response.json();
+      const err = await response.text();
       console.error("[AI Generator] Claude error:", err);
-      return NextResponse.json({ error: "Claude API error: " + JSON.stringify(err) }, { status: 500 });
+      return NextResponse.json({ error: "Claude API error: " + err.slice(0, 300) }, { status: 500 });
     }
 
-    const data = await response.json();
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      const text = await response.text();
+      return NextResponse.json({ error: "Invalid response: " + text.slice(0, 200) }, { status: 500 });
+    }
     const html = data.content?.[0]?.text || "";
 
     if (!html || !html.includes("<!DOCTYPE")) {
