@@ -225,10 +225,12 @@ export default function ScraperPage() {
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">Max Results</label>
             <select value={maxResults} onChange={e => setMaxResults(e.target.value)} className="w-full h-9 px-3 text-sm bg-white border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500">
-              <option value="10">10</option>
-              <option value="20">20</option>
-              <option value="50">50</option>
-              <option value="100">100</option>
+              <option value="2">2 businesses</option>
+              <option value="5">5 businesses</option>
+              <option value="10">10 businesses</option>
+              <option value="20">20 businesses</option>
+              <option value="50">50 businesses</option>
+              <option value="100">100 businesses</option>
             </select>
           </div>
           <Button icon={scraping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />} onClick={handleScrape} loading={scraping} className="h-9">
