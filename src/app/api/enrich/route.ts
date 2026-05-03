@@ -1,112 +1,76 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createServiceClient } from "@/lib/supabase";
+import { scrapeGoogleMaps, generateEnrichedPlaceholders } from "@/lib/apify";
 
-const APIFY_TOKEN = process.env.APIFY_TOKEN || "";
-const APIFY_API = "https://api.apify.com/v2";
-
-export const maxDuration = 60;
+export const maxDuration = 90; // Apify can take up to 60s
 
 export async function POST(req: NextRequest) {
+  const supabase = createServiceClient();
+
   try {
-    const { businessName, city } = await req.json();
-    if (!businessName) return NextResponse.json({ error: "businessName required" }, { status: 400 });
+    const { leadId } = await req.json();
+    if (!leadId) return NextResponse.json({ error: "leadId required" }, { status: 400 });
 
-    console.log(`[Socials] Finding socials for: ${businessName} in ${city}`);
+    // Fetch lead
+    const { data: lead, error } = await supabase
+      .from("leads")
+      .select("*")
+      .eq("id", leadId)
+      .single();
 
-    // Run Google Search to find social profiles
-    const query = `"${businessName}" ${city} site:instagram.com OR site:facebook.com OR site:tiktok.com OR site:linkedin.com OR site:youtube.com`;
+    if (error || !lead) return NextResponse.json({ error: "Lead not found" }, { status: 404 });
 
-    const runRes = await fetch(
-      `${APIFY_API}/acts/apify~google-search-scraper/runs?token=${APIFY_TOKEN}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          queries: query,
-          maxPagesPerQuery: 1,
-          resultsPerPage: 10,
-          languageCode: "fr",
-          countryCode: "MA",
-        }),
-      }
+    console.log(`[Enrich] Starting enrichment for ${lead.company_name}`);
+
+    // Scrape Google Maps
+    const enriched = await scrapeGoogleMaps(
+      lead.company_name,
+      lead.city,
+      lead.phone
     );
 
-    if (!runRes.ok) {
-      const err = await runRes.text();
-      return NextResponse.json({ error: "Failed to start search: " + err }, { status: 500 });
+    if (!enriched) {
+      return NextResponse.json({ error: "No data found on Google Maps" }, { status: 404 });
     }
 
-    const runData = await runRes.json();
-    const runId = runData.data?.id;
-    if (!runId) return NextResponse.json({ error: "No run ID" }, { status: 500 });
+    // Update lead with enriched data
+    const updateData: any = {
+      enriched: true,
+      enriched_at: new Date().toISOString(),
+      google_rating: enriched.google_rating,
+      review_count: enriched.review_count,
+      google_maps_url: enriched.google_maps_url,
+      place_id: enriched.place_id,
+      photos: enriched.photos,
+      real_reviews: enriched.reviews,
+      real_services: enriched.services,
+      opening_hours: enriched.opening_hours,
+      description: enriched.description,
+    };
 
-    // Poll for results — 45 seconds max
-    const start = Date.now();
-    while (Date.now() - start < 45000) {
-      await new Promise(r => setTimeout(r, 3000));
+    // Update phone/email/website if missing
+    if (!lead.phone && enriched.phone) updateData.phone = enriched.phone;
+    if (!lead.email && enriched.email) updateData.email = enriched.email;
+    if (!lead.website && enriched.website) updateData.website = enriched.website;
 
-      const statusRes = await fetch(`${APIFY_API}/actor-runs/${runId}?token=${APIFY_TOKEN}`);
-      const statusData = await statusRes.json();
-      const status = statusData.data?.status;
+    await supabase.from("leads").update(updateData).eq("id", leadId);
 
-      console.log(`[Socials] Status: ${status}`);
+    console.log(`[Enrich] Done! ${enriched.photos.length} photos, ${enriched.reviews.length} reviews`);
 
-      if (status === "SUCCEEDED") {
-        const datasetId = statusData.data?.defaultDatasetId;
-        const res = await fetch(`${APIFY_API}/datasets/${datasetId}/items?token=${APIFY_TOKEN}&limit=20`);
-        const data = await res.json();
-        const results = Array.isArray(data) ? data : [];
-
-        // Extract social links
-        const social: any = {
-          instagram: "",
-          facebook: "",
-          tiktok: "",
-          linkedin: "",
-          youtube: "",
-        };
-
-        for (const result of results) {
-          for (const item of (result.organicResults || [])) {
-            const url = item.url || "";
-            const urlLower = url.toLowerCase();
-            if (urlLower.includes("instagram.com") && !social.instagram) {
-              // Make sure it's a profile not a post
-              if (!urlLower.includes("/p/") && !urlLower.includes("/reel/")) {
-                social.instagram = url;
-              }
-            }
-            if (urlLower.includes("facebook.com") && !social.facebook) {
-              if (!urlLower.includes("/posts/") && !urlLower.includes("/photos/")) {
-                social.facebook = url;
-              }
-            }
-            if (urlLower.includes("tiktok.com") && !social.tiktok) {
-              social.tiktok = url;
-            }
-            if (urlLower.includes("linkedin.com") && !social.linkedin) {
-              social.linkedin = url;
-            }
-            if (urlLower.includes("youtube.com") && !social.youtube) {
-              if (!urlLower.includes("/watch?")) {
-                social.youtube = url;
-              }
-            }
-          }
-        }
-
-        console.log(`[Socials] Found: IG=${!!social.instagram} FB=${!!social.facebook} TT=${!!social.tiktok}`);
-        return NextResponse.json({ success: true, social });
+    return NextResponse.json({
+      success: true,
+      data: {
+        photos: enriched.photos.length,
+        reviews: enriched.reviews.length,
+        services: enriched.services.length,
+        rating: enriched.google_rating,
+        review_count: enriched.review_count,
+        description: enriched.description,
       }
+    });
 
-      if (status === "FAILED" || status === "ABORTED") {
-        return NextResponse.json({ error: "Search failed" }, { status: 500 });
-      }
-    }
-
-    return NextResponse.json({ error: "Search timed out" }, { status: 408 });
-
-  } catch (e: any) {
-    console.error("[Socials] Error:", e.message);
-    return NextResponse.json({ error: e.message }, { status: 500 });
+  } catch (err: any) {
+    console.error("[Enrich] Error:", err.message);
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
