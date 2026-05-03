@@ -79,10 +79,17 @@ export function AIGenerateButton({ lead }: AIGenerateButtonProps) {
         return;
       }
 
-      if (data.success && data.jobId) {
+      if (data.success && data.html) {
+        // Direct response — show immediately
+        setHtml(data.html);
+        setState("done");
+        setPreviewOpen(true);
+        toast.success(`✅ Website ready for ${lead.company_name}!`, { id: "ai-start" });
+      } else if (data.success && data.jobId) {
+        // Background job — poll for result
         setJobId(data.jobId);
         setState("generating");
-        toast.success("🚀 Claude Sonnet is designing your website...", { id: "ai-start", duration: 3000 });
+        toast.success("🚀 Claude is designing your website...", { id: "ai-start", duration: 3000 });
       } else {
         toast.error(data.error || "Failed to start", { id: "ai-start" });
         setState("idle");
