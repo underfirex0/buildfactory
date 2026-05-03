@@ -1,5 +1,6 @@
 "use client";
 
+import { AIGenerateButton } from "@/components/AIGenerateButton";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { PageHeader } from "@/components/layout/Header";
 import { Card } from "@/components/ui/Card";
@@ -340,12 +341,15 @@ export default function LeadsPage() {
                       <span className="text-xs text-slate-400">{formatDateRelative(lead.created_at)}</span>
                     </td>
                     <td>
+                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                      <AIGenerateButton lead={lead} />
                       <button
                         onClick={() => handleDelete(lead)}
-                        className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all"
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
+                    </div>
                     </td>
                   </tr>
                 );
