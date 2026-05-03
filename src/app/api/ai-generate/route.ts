@@ -41,7 +41,7 @@ REAL PHOTOS (8 photos - use ALL of them):
 ${photos.join("\n") || "No photos - use CSS gradient backgrounds"}
 
 REAL REVIEWS (${reviewsData.length} reviews):
-${reviewsData.map(r => `- "${r.text}" — ${r.author} (${r.rating}★)`).join("\n") || "No reviews"}
+${reviewsData.map((r: any) => `- "${r.text}" — ${r.author} (${r.rating}★)`).join("\n") || "No reviews"}
 
 ═══════════ DESIGN SYSTEM ═══════════
 Colors:
