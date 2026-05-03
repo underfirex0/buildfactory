@@ -185,14 +185,25 @@ export async function POST(req: NextRequest) {
 
     console.log(`[AI Gen] Job ${job.id} started for ${lead.company_name}`);
 
-    // Generate in background (don't await)
-    generateInBackground(job.id, lead, supabase);
+    // Generate directly and wait
+    await generateInBackground(job.id, lead, supabase);
 
-    return NextResponse.json({
-      success: true,
-      jobId: job.id,
-      message: "Generation started",
-    });
+    // Get result
+    const { data: result } = await supabase
+      .from("ai_generations")
+      .select("html, status, error")
+      .eq("id", job.id)
+      .single();
+
+    if (result?.status === "completed" && result?.html) {
+      return NextResponse.json({
+        success: true,
+        jobId: job.id,
+        html: result.html,
+      });
+    }
+
+    return NextResponse.json({ error: result?.error || "Generation failed" }, { status: 500 });
 
   } catch (e: any) {
     console.error("[AI Gen] Error:", e.message);
@@ -214,8 +225,8 @@ async function generateInBackground(jobId: string, lead: any, supabase: any) {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-5",
-        max_tokens: 12000,
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 8000,
         messages: [{ role: "user", content: prompt }],
       }),
     });
