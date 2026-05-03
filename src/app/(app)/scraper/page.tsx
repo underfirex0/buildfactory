@@ -71,7 +71,7 @@ export default function ScraperPage() {
   const [niche, setNiche] = useState("restaurant");
   const [city, setCity] = useState("Casablanca");
   const [customCity, setCustomCity] = useState("");
-  const [maxResults, setMaxResults] = useState("20");
+  const [maxResults, setMaxResults] = useState("5");
   const [websiteFilter, setWebsiteFilter] = useState("all");
   const [scraping, setScraping] = useState(false);
   const [results, setResults] = useState<ScrapedBusiness[]>([]);
