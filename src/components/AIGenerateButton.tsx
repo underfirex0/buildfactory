@@ -17,6 +17,7 @@ export function AIGenerateButton({ lead }: AIGenerateButtonProps) {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [deploying, setDeploying] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const [fullPages, setFullPages] = useState("");
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -41,8 +42,16 @@ export function AIGenerateButton({ lead }: AIGenerateButtonProps) {
         const data = await res.json();
 
         if (data.status === "completed" && data.html) {
-          clearInterval(pollingRef.current!);
-          setHtml(data.html);
+        clearInterval(pollingRef.current!);
+        // Parse multi-page JSON and show index page in preview
+        let previewHtml = data.html;
+        try {
+          const pages = JSON.parse(data.html);
+          previewHtml = pages.index || pages[Object.keys(pages)[0]];
+        } catch {}
+        setHtml(previewHtml);
+        // Store full pages for deploy
+        setFullPages(data.html);
           setState("done");
           setPreviewOpen(true);
           toast.success(`✅ Website ready for ${lead.company_name}! (${elapsed}s)`, { duration: 5000 });
@@ -118,7 +127,7 @@ export function AIGenerateButton({ lead }: AIGenerateButtonProps) {
       const res = await fetch("/api/ai-deploy", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ leadId: lead.id, html }),
+        body: JSON.stringify({ leadId: lead.id, html: fullPages || html }),
       });
 
       const text = await res.text();
