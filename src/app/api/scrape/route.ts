@@ -17,12 +17,8 @@ export async function POST(req: NextRequest) {
     console.log(`[Scraper] Maps: ${mapsResults.length} results`);
 
     // STEP 2: Enrich each business with social media from Google Search
-    const enriched = await Promise.all(
-      mapsResults.slice(0, maxResults).map(async (biz: any) => {
-        const social = await findSocialMedia(biz.title || biz.name || "", biz.city || city);
-        return { ...biz, ...social };
-      })
-    );
+    // Skip Google Search for now — use only Maps data to save credits
+const enriched = mapsResults.slice(0, maxResults);
 
     // STEP 3: Apply website filter
     let filtered = enriched;
