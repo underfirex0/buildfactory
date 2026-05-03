@@ -11,17 +11,9 @@ import { supabase } from "@/lib/supabase";
 import { TEMPLATE_CATEGORIES, LEAD_STATUS_META, formatDateRelative } from "@/lib/utils";
 import type { Lead, CreateLeadInput } from "@/types";
 import {
-  Plus,
-  Upload,
-  Users,
-  Building2,
-  MapPin,
-  Phone,
-  Mail,
-  Search,
-  Trash2,
-  FileUp,
-  ChevronDown,
+  Plus, Upload, Users, Building2, MapPin, Phone,
+  Mail, Search, Trash2, FileUp, Sparkles, Star,
+  CheckCircle2, Loader2,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import Papa from "papaparse";
@@ -46,6 +38,9 @@ export default function LeadsPage() {
   const [importing, setImporting] = useState(false);
   const [form, setForm] = useState<CreateLeadInput>(EMPTY_FORM);
   const [csvPreview, setCsvPreview] = useState<CreateLeadInput[]>([]);
+  const [enriching, setEnriching] = useState<string | null>(null);
+  const [enrichedLead, setEnrichedLead] = useState<any>(null);
+  const [enrichOpen, setEnrichOpen] = useState(false);
   const csvRef = useRef<HTMLInputElement>(null);
 
   const fetchLeads = useCallback(async () => {
@@ -80,7 +75,6 @@ export default function LeadsPage() {
       website: form.website || null,
       notes: form.notes || null,
     });
-
     if (!error) {
       toast.success("Lead added");
       setAddOpen(false);
@@ -103,10 +97,40 @@ export default function LeadsPage() {
     }
   };
 
+  // ─── ENRICH LEAD ─────────────────────────────────────────────────────────
+  const handleEnrich = async (lead: Lead) => {
+    setEnriching(lead.id);
+    toast.loading(`Scraping Google Maps for ${lead.company_name}...`, { id: "enrich" });
+
+    try {
+      const res = await fetch("/api/enrich", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadId: lead.id }),
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        toast.success(
+          `✅ Enriched! ${data.data.photos} photos, ${data.data.reviews} reviews, rating ${data.data.rating}⭐`,
+          { id: "enrich", duration: 5000 }
+        );
+        setEnrichedLead({ ...lead, ...data.data });
+        setEnrichOpen(true);
+        fetchLeads();
+      } else {
+        toast.error(data.error || "Not found on Google Maps", { id: "enrich" });
+      }
+    } catch {
+      toast.error("Enrichment failed", { id: "enrich" });
+    }
+
+    setEnriching(null);
+  };
+
   const handleCsvFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     Papa.parse<Record<string, string>>(file, {
       header: true,
       skipEmptyLines: true,
@@ -122,7 +146,6 @@ export default function LeadsPage() {
             notes: row.notes || row.Notes || "",
           }))
           .filter((r) => r.company_name && r.city);
-
         if (parsed.length === 0) {
           toast.error("No valid rows found. Check your CSV headers.");
           return;
@@ -132,7 +155,6 @@ export default function LeadsPage() {
       },
       error: () => toast.error("Failed to parse CSV"),
     });
-
     e.target.value = "";
   };
 
@@ -147,7 +169,6 @@ export default function LeadsPage() {
         notes: r.notes || null,
       }))
     );
-
     if (!error) {
       toast.success(`Imported ${csvPreview.length} leads`);
       setCsvOpen(false);
@@ -159,6 +180,8 @@ export default function LeadsPage() {
     setImporting(false);
   };
 
+  const enrichedCount = leads.filter((l: any) => l.enriched).length;
+
   return (
     <div className="animate-fade-in">
       <PageHeader
@@ -166,29 +189,41 @@ export default function LeadsPage() {
         description="Manage local business leads for website generation"
         actions={
           <div className="flex items-center gap-2">
-            <input
-              ref={csvRef}
-              type="file"
-              accept=".csv"
-              className="hidden"
-              onChange={handleCsvFile}
-            />
-            <Button
-              variant="secondary"
-              icon={<FileUp className="w-3.5 h-3.5" />}
-              onClick={() => csvRef.current?.click()}
-            >
+            <input ref={csvRef} type="file" accept=".csv" className="hidden" onChange={handleCsvFile} />
+            <Button variant="secondary" icon={<FileUp className="w-3.5 h-3.5" />} onClick={() => csvRef.current?.click()}>
               Import CSV
             </Button>
-            <Button
-              icon={<Plus className="w-3.5 h-3.5" />}
-              onClick={() => setAddOpen(true)}
-            >
+            <Button icon={<Plus className="w-3.5 h-3.5" />} onClick={() => setAddOpen(true)}>
               Add Lead
             </Button>
           </div>
         }
       />
+
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-4 mb-6">
+        <Card padding="md">
+          <div className="w-8 h-8 rounded-lg bg-brand-50 flex items-center justify-center mb-3">
+            <Users className="w-4 h-4 text-brand-600" />
+          </div>
+          <p className="text-xl font-bold text-slate-900">{leads.length}</p>
+          <p className="text-xs text-slate-500 mt-0.5">Total Leads</p>
+        </Card>
+        <Card padding="md">
+          <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center mb-3">
+            <Sparkles className="w-4 h-4 text-amber-600" />
+          </div>
+          <p className="text-xl font-bold text-slate-900">{enrichedCount}</p>
+          <p className="text-xs text-slate-500 mt-0.5">Enriched with Google Data</p>
+        </Card>
+        <Card padding="md">
+          <div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center mb-3">
+            <CheckCircle2 className="w-4 h-4 text-green-600" />
+          </div>
+          <p className="text-xl font-bold text-slate-900">{leads.length - enrichedCount}</p>
+          <p className="text-xs text-slate-500 mt-0.5">Pending Enrichment</p>
+        </Card>
+      </div>
 
       {/* Toolbar */}
       <div className="flex items-center gap-3 mb-5">
@@ -202,32 +237,22 @@ export default function LeadsPage() {
             className="w-full h-9 pl-9 pr-3 text-sm bg-white border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-slate-400"
           />
         </div>
-        <span className="text-xs text-slate-500 ml-auto">
-          {filteredLeads.length} leads
-        </span>
+        <span className="text-xs text-slate-500 ml-auto">{filteredLeads.length} leads</span>
       </div>
 
       {/* Table */}
       <Card padding="none">
         {loading ? (
           <div className="divide-y divide-surface-50">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <SkeletonRow key={i} />
-            ))}
+            {Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} />)}
           </div>
         ) : filteredLeads.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-state-icon">
-              <Users className="w-5 h-5 text-slate-400" />
-            </div>
+            <div className="empty-state-icon"><Users className="w-5 h-5 text-slate-400" /></div>
             <p className="text-sm font-medium text-slate-600 mb-1">
               {search ? "No leads match your search" : "No leads yet"}
             </p>
-            {!search && (
-              <p className="text-xs text-slate-400 mb-4">
-                Add leads manually or import a CSV file
-              </p>
-            )}
+            {!search && <p className="text-xs text-slate-400 mb-4">Add leads manually or import a CSV file</p>}
           </div>
         ) : (
           <table className="data-table">
@@ -236,28 +261,31 @@ export default function LeadsPage() {
                 <th>Business</th>
                 <th>Category</th>
                 <th>Contact</th>
+                <th>Google Data</th>
                 <th>Status</th>
                 <th>Added</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {filteredLeads.map((lead) => {
+              {filteredLeads.map((lead: any) => {
                 const statusMeta = LEAD_STATUS_META[lead.status];
+                const isEnriching = enriching === lead.id;
                 return (
                   <tr key={lead.id} className="group">
                     <td>
                       <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-lg bg-surface-100 flex items-center justify-center flex-shrink-0">
-                          <Building2 className="w-4 h-4 text-slate-400" />
+                        <div className="w-8 h-8 rounded-lg bg-surface-100 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                          {lead.photos?.[0] ? (
+                            <img src={lead.photos[0]} alt="" className="w-full h-full object-cover"/>
+                          ) : (
+                            <Building2 className="w-4 h-4 text-slate-400" />
+                          )}
                         </div>
                         <div>
-                          <p className="font-semibold text-slate-800 text-xs leading-tight">
-                            {lead.company_name}
-                          </p>
+                          <p className="font-semibold text-slate-800 text-xs leading-tight">{lead.company_name}</p>
                           <span className="flex items-center gap-1 text-slate-400 text-[11px]">
-                            <MapPin className="w-2.5 h-2.5" />
-                            {lead.city}
+                            <MapPin className="w-2.5 h-2.5" />{lead.city}
                           </span>
                         </div>
                       </div>
@@ -280,16 +308,36 @@ export default function LeadsPage() {
                       </div>
                     </td>
                     <td>
-                      <span
-                        className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-full border ${statusMeta.bg} ${statusMeta.color}`}
-                      >
+                      {lead.enriched ? (
+                        <div className="flex items-center gap-1.5">
+                          <Star className="w-3 h-3 text-amber-500 fill-amber-500" />
+                          <span className="text-xs font-semibold text-slate-700">{lead.google_rating}</span>
+                          <span className="text-[11px] text-slate-400">({lead.review_count})</span>
+                          <span className="text-[10px] text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full font-medium ml-1">
+                            {lead.photos?.length || 0} photos
+                          </span>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => handleEnrich(lead)}
+                          disabled={isEnriching}
+                          className="flex items-center gap-1.5 text-[11px] font-medium text-amber-600 hover:text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2.5 py-1 rounded-lg transition-all disabled:opacity-50"
+                        >
+                          {isEnriching ? (
+                            <><Loader2 className="w-3 h-3 animate-spin" /> Scraping...</>
+                          ) : (
+                            <><Sparkles className="w-3 h-3" /> Enrich</>
+                          )}
+                        </button>
+                      )}
+                    </td>
+                    <td>
+                      <span className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-full border ${statusMeta.bg} ${statusMeta.color}`}>
                         {statusMeta.label}
                       </span>
                     </td>
                     <td>
-                      <span className="text-xs text-slate-400">
-                        {formatDateRelative(lead.created_at)}
-                      </span>
+                      <span className="text-xs text-slate-400">{formatDateRelative(lead.created_at)}</span>
                     </td>
                     <td>
                       <button
@@ -307,6 +355,37 @@ export default function LeadsPage() {
         )}
       </Card>
 
+      {/* Enrichment Result Modal */}
+      <Modal
+        isOpen={enrichOpen}
+        onClose={() => setEnrichOpen(false)}
+        title="✅ Lead Enriched Successfully"
+        size="lg"
+        footer={<Button onClick={() => setEnrichOpen(false)}>Done</Button>}
+      >
+        {enrichedLead && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center">
+                <p className="text-2xl font-bold text-amber-700">{enrichedLead.photos}</p>
+                <p className="text-xs text-amber-600">Photos scraped</p>
+              </div>
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-center">
+                <p className="text-2xl font-bold text-blue-700">{enrichedLead.reviews}</p>
+                <p className="text-xs text-blue-600">Real reviews</p>
+              </div>
+              <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-center">
+                <p className="text-2xl font-bold text-green-700">{enrichedLead.rating}⭐</p>
+                <p className="text-xs text-green-600">Google rating</p>
+              </div>
+            </div>
+            <p className="text-sm text-slate-600">
+              This lead is now enriched with real Google Maps data. When you build their website, it will automatically include their real photos, reviews, and business information.
+            </p>
+          </div>
+        )}
+      </Modal>
+
       {/* Add Lead Modal */}
       <Modal
         isOpen={addOpen}
@@ -321,54 +400,17 @@ export default function LeadsPage() {
       >
         <div className="grid grid-cols-2 gap-4">
           <div className="col-span-2">
-            <Input
-              label="Company Name *"
-              placeholder="e.g. The Golden Spoon"
-              value={form.company_name}
-              onChange={(e) => setForm((f) => ({ ...f, company_name: e.target.value }))}
-            />
+            <Input label="Company Name *" placeholder="e.g. The Golden Spoon" value={form.company_name} onChange={(e) => setForm((f) => ({ ...f, company_name: e.target.value }))} />
           </div>
-          <Select
-            label="Category *"
-            value={form.category}
-            onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
-            options={TEMPLATE_CATEGORIES.map((c) => ({ value: c.value, label: c.label }))}
-          />
-          <Input
-            label="City *"
-            placeholder="e.g. Austin"
-            value={form.city}
-            onChange={(e) => setForm((f) => ({ ...f, city: e.target.value }))}
-          />
-          <Input
-            label="Phone"
-            placeholder="+1 555 000 0000"
-            value={form.phone}
-            onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-          />
-          <Input
-            label="Email"
-            type="email"
-            placeholder="contact@business.com"
-            value={form.email}
-            onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-          />
+          <Select label="Category *" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} options={TEMPLATE_CATEGORIES.map((c) => ({ value: c.value, label: c.label }))} />
+          <Input label="City *" placeholder="e.g. Casablanca" value={form.city} onChange={(e) => setForm((f) => ({ ...f, city: e.target.value }))} />
+          <Input label="Phone" placeholder="+212 6XX XXX XXX" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
+          <Input label="Email" type="email" placeholder="contact@business.com" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
           <div className="col-span-2">
-            <Input
-              label="Website"
-              placeholder="https://..."
-              value={form.website}
-              onChange={(e) => setForm((f) => ({ ...f, website: e.target.value }))}
-            />
+            <Input label="Website" placeholder="https://..." value={form.website} onChange={(e) => setForm((f) => ({ ...f, website: e.target.value }))} />
           </div>
           <div className="col-span-2">
-            <Textarea
-              label="Notes"
-              placeholder="Any additional notes..."
-              rows={2}
-              value={form.notes}
-              onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-            />
+            <Textarea label="Notes" placeholder="Any additional notes..." rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
           </div>
         </div>
       </Modal>
@@ -382,29 +424,18 @@ export default function LeadsPage() {
         footer={
           <>
             <Button variant="secondary" onClick={() => setCsvOpen(false)}>Cancel</Button>
-            <Button
-              onClick={handleCsvImport}
-              loading={importing}
-              icon={<Upload className="w-3.5 h-3.5" />}
-            >
-              Import All
-            </Button>
+            <Button onClick={handleCsvImport} loading={importing} icon={<Upload className="w-3.5 h-3.5" />}>Import All</Button>
           </>
         }
       >
         <p className="text-xs text-slate-500 mb-4">
-          Preview of the first rows from your CSV. All{" "}
-          <strong>{csvPreview.length}</strong> rows will be imported.
+          Preview of the first rows from your CSV. All <strong>{csvPreview.length}</strong> rows will be imported.
         </p>
         <div className="overflow-x-auto rounded-lg border border-surface-100">
           <table className="data-table">
             <thead>
               <tr>
-                <th>Company</th>
-                <th>Category</th>
-                <th>City</th>
-                <th>Phone</th>
-                <th>Email</th>
+                <th>Company</th><th>Category</th><th>City</th><th>Phone</th><th>Email</th>
               </tr>
             </thead>
             <tbody>
@@ -421,9 +452,7 @@ export default function LeadsPage() {
           </table>
         </div>
         {csvPreview.length > 10 && (
-          <p className="text-xs text-slate-400 mt-2 text-center">
-            ...and {csvPreview.length - 10} more rows
-          </p>
+          <p className="text-xs text-slate-400 mt-2 text-center">...and {csvPreview.length - 10} more rows</p>
         )}
       </Modal>
     </div>
