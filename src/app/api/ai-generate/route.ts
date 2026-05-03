@@ -130,7 +130,9 @@ export async function POST(req: NextRequest) {
       const text = await response.text();
       return NextResponse.json({ error: "Invalid response: " + text.slice(0, 200) }, { status: 500 });
     }
-    const html = data.content?.[0]?.text || "";
+    let html = data.content?.[0]?.text || "";
+    // Remove markdown code blocks if Claude wrapped it
+    html = html.replace(/^```html\n?/, "").replace(/^```\n?/, "").replace(/\n?```$/, "").trim();
 
     if (!html || !html.includes("<!DOCTYPE")) {
       return NextResponse.json({ error: "Claude did not return valid HTML" }, { status: 500 });
