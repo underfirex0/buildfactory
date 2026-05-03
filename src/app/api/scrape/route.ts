@@ -56,7 +56,7 @@ async function scrapeGoogleMaps(niche: string, city: string, maxResults: number)
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        searchStringsArray: [`${niche} ${city} Maroc`],
+        searchStringsArray: [`${niche} à ${city} Maroc`],
         maxCrawledPlacesPerSearch: maxResults,
         language: "fr",
         includeReviews: true,
