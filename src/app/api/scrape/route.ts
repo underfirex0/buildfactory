@@ -18,11 +18,7 @@ export async function POST(req: NextRequest) {
 
     // STEP 2: For each business, run Google Search to find socials
     // Run sequentially to avoid timeout, max 5 businesses enriched with social
-    const enriched = [];
-    for (let i = 0; i < mapsResults.length; i++) {
-      const biz = mapsResults[i];
-      const name = biz.title || biz.name || "";
-      const bizCity = biz.city || city;
+    const enriched = mapsResults.slice(0, maxResults);
 
       // Only run Google Search for first 5 to save credits + avoid timeout
       if (i < 5 && name) {
