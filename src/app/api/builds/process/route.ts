@@ -21,8 +21,10 @@ export async function POST(req: NextRequest) {
 
   const vercelToken = process.env.VERCEL_API_TOKEN;
 
+  console.log(`[PROCESS] buildId: ${buildId}`);
+  console.log(`[PROCESS] Token present: ${!!vercelToken} | length: ${vercelToken?.length ?? 0} | prefix: ${vercelToken?.substring(0, 10) ?? 'MISSING'}`);
+
   try {
-    // 1. Fetch build record
     const { data: build, error: buildErr } = await supabase
       .from("builds").select("*, leads(*), templates(*)")
       .eq("id", buildId).single();
@@ -34,17 +36,15 @@ export async function POST(req: NextRequest) {
     if (!lead) throw new Error("Lead not found");
     if (!template) throw new Error("Template not found");
 
-    // 2. Download template
+    console.log(`[PROCESS] Lead: ${lead.company_name} | Template: ${template.name}`);
+
     const { data: fileData, error: storageErr } = await supabase.storage
       .from("templates").download(template.file_path);
     if (storageErr || !fileData) throw new Error(`Failed to fetch template: ${storageErr?.message}`);
 
     const templateBuffer = await fileData.arrayBuffer();
-
-    // 3. Process template
     const outputZip = await processTemplate(templateBuffer, lead);
 
-    // 4. Save ZIP to storage
     const slug = lead.company_name
       .toLowerCase()
       .replace(/\s+/g, "-")
@@ -57,34 +57,27 @@ export async function POST(req: NextRequest) {
       contentType: "application/zip", upsert: true,
     });
 
-    // 5. Deploy to Vercel — no timeout, let it run the full 60s
     let outputUrl: string | null = null;
     let vercelDeploymentId: string | null = null;
 
-    if (vercelToken) {
+    if (!vercelToken) {
+      console.log(`[PROCESS] ⚠️ VERCEL_API_TOKEN is empty or missing!`);
+    } else {
       try {
-        const citySlug = lead.city
-          .toLowerCase()
-          .replace(/\s+/g, "-")
-          .replace(/[^a-z0-9-]/g, "");
+        const citySlug = lead.city.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
         const siteName = `${slug}-${citySlug}`;
         const alias = `${slug}.${CUSTOM_DOMAIN}`;
 
-        console.log(`[BUILD] Deploying ${siteName} → ${alias}`);
-
-        // No Promise.race timeout — deploy gets the full remaining time
+        console.log(`[PROCESS] Deploying → ${alias}`);
         const result = await deployToVercel(outputZip, siteName, vercelToken, alias);
-
         outputUrl = result.url;
         vercelDeploymentId = result.deploymentId;
-        console.log(`[BUILD] ✅ Live: ${outputUrl}`);
+        console.log(`[PROCESS] ✅ ${outputUrl}`);
       } catch (deployErr: any) {
-        console.error("[VERCEL DEPLOY ERROR]", deployErr.message);
-        // Don't fail the build — ZIP is already saved
+        console.error(`[PROCESS] ❌ ${deployErr.message}`);
       }
     }
 
-    // 6. Mark build as done
     await supabase.from("builds").update({
       status: "done",
       output_path: outputPath,
