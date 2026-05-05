@@ -36,13 +36,54 @@ export async function deployToVercel(
   const deployment = await createDeployment(siteName, uploadedFiles, token, alias);
   const ready = await waitForDeployment(deployment.id, token);
 
-  // If alias was set, use it as the final URL
-  const finalUrl = alias ? `https://${alias}` : getCleanUrl(ready);
+  // Explicitly assign alias AFTER deployment is ready
+  let finalUrl = `https://${ready.url}`;
+  if (alias) {
+    try {
+      await assignAlias(ready.id, alias, token);
+      finalUrl = `https://${alias}`;
+      console.log(`[DOMAIN] Alias assigned: ${alias}`);
+    } catch (e: any) {
+      console.error(`[DOMAIN] Failed to assign alias ${alias}:`, e.message);
+      // Fall back to raw Vercel URL
+      finalUrl = getCleanUrl(ready);
+    }
+  }
 
   return {
     deploymentId: ready.id,
     url: finalUrl,
   };
+}
+
+/**
+ * Explicitly assign an alias to a deployment
+ * This is MORE RELIABLE than setting alias at creation time
+ */
+async function assignAlias(
+  deploymentId: string,
+  alias: string,
+  token: string
+): Promise<void> {
+  const res = await fetch(
+    `${VERCEL_API}/v2/deployments/${deploymentId}/aliases`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ alias }),
+    }
+  );
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Alias assignment failed: ${err}`);
+  }
+
+  const data = await res.json();
+  console.log(`[DOMAIN] Alias response:`, JSON.stringify(data));
 }
 
 /**
@@ -151,9 +192,9 @@ async function createDeployment(
     target: "production",
   };
 
+  // Also set alias at creation as a backup
   if (alias) {
     body.alias = [alias];
-    console.log(`[DOMAIN] Setting alias at creation: ${alias}`);
   }
 
   const res = await fetch(`${VERCEL_API}/v13/deployments`, {
