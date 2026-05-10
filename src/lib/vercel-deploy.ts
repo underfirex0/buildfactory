@@ -37,7 +37,12 @@ export async function deployToVercel(
   const deployment = await createDeployment(siteName, uploadedFiles, token, alias);
   const ready = await waitForDeployment(deployment.id, token);
 
-  const finalUrl = alias ? `https://${alias}` : getCleanUrl(ready);
+// Assign alias separately after deployment is ready
+if (alias) {
+  await assignAlias(ready.id, alias, token);
+}
+
+const finalUrl = alias ? `https://${alias}` : getCleanUrl(ready);
 
   return {
     deploymentId: ready.id,
