@@ -7,7 +7,7 @@ import JSZip from "jszip";
 import crypto from "crypto";
 
 const VERCEL_API = "https://api.vercel.com";
-const VERCEL_TEAM_SLUG = "team_wy3WeSZgVNxFhj1wzSMo67SP";
+const VERCEL_TEAM_ID = "team_wy3WeSZgVNxFhj1wzSMo67SP";
 
 interface VercelDeployment {
   id: string;
@@ -23,8 +23,8 @@ interface VercelFile {
 }
 
 /**
- * Deploy a ZIP buffer as a new Vercel project
- * Pass alias to set custom domain at creation time
+ * Deploy a ZIP buffer as a new Vercel deployment under the team
+ * Then assign the custom alias
  */
 export async function deployToVercel(
   zipBuffer: Uint8Array,
@@ -34,33 +34,20 @@ export async function deployToVercel(
 ): Promise<{ deploymentId: string; url: string }> {
   const files = await extractZipFiles(zipBuffer);
   const uploadedFiles = await uploadFiles(files, token);
-  const deployment = await createDeployment(siteName, uploadedFiles, token, alias);
+  const deployment = await createDeployment(siteName, uploadedFiles, token);
   const ready = await waitForDeployment(deployment.id, token);
 
-// Assign alias separately after deployment is ready
-if (alias) {
-  await assignAlias(ready.id, alias, token);
-}
+  // Assign custom alias after deployment is ready
+  if (alias) {
+    await assignAlias(ready.id, alias, token);
+  }
 
-const finalUrl = alias ? `https://${alias}` : getCleanUrl(ready);
+  const finalUrl = alias ? `https://${alias}` : `https://${ready.url}`;
 
   return {
     deploymentId: ready.id,
     url: finalUrl,
   };
-}
-
-/**
- * Get the cleanest public URL from deployment
- */
-function getCleanUrl(deployment: VercelDeployment): string {
-  if (deployment.alias && deployment.alias.length > 0) {
-    const sorted = [...deployment.alias].sort((a, b) => a.length - b.length);
-    const clean = sorted.find(a => !a.includes("git") && !a.includes(".now.sh"));
-    if (clean) return `https://${clean}`;
-    return `https://${sorted[0]}`;
-  }
-  return `https://${deployment.url}`;
 }
 
 /**
@@ -93,7 +80,7 @@ async function extractZipFiles(
 }
 
 /**
- * Upload files to Vercel's file store
+ * Upload files to Vercel's file store under the team
  */
 async function uploadFiles(
   files: Record<string, Buffer>,
@@ -104,7 +91,7 @@ async function uploadFiles(
   for (const [filename, content] of Object.entries(files)) {
     const sha = crypto.createHash("sha1").update(content).digest("hex");
 
-    const res = await fetch(`${VERCEL_API}/v2/files?teamId=${VERCEL_TEAM_SLUG}`, {
+    const res = await fetch(`${VERCEL_API}/v2/files?teamId=${VERCEL_TEAM_ID}`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -127,13 +114,12 @@ async function uploadFiles(
 }
 
 /**
- * Create a Vercel deployment with optional alias set at creation time
+ * Create a Vercel deployment under the team
  */
 async function createDeployment(
   siteName: string,
   files: VercelFile[],
-  token: string,
-  alias?: string
+  token: string
 ): Promise<VercelDeployment> {
   const sanitized = siteName
     .toLowerCase()
@@ -156,8 +142,7 @@ async function createDeployment(
     target: "production",
   };
 
-
-  const res = await fetch(`${VERCEL_API}/v13/deployments?teamId=${VERCEL_TEAM_SLUG}`, {
+  const res = await fetch(`${VERCEL_API}/v13/deployments?teamId=${VERCEL_TEAM_ID}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -173,15 +158,48 @@ async function createDeployment(
 
   return res.json();
 }
+
 /**
- * Assign a custom alias to a deployment
+ * Poll until deployment is READY
+ */
+async function waitForDeployment(
+  deploymentId: string,
+  token: string,
+  maxAttempts = 30
+): Promise<VercelDeployment> {
+  for (let i = 0; i < maxAttempts; i++) {
+    const res = await fetch(
+      `${VERCEL_API}/v13/deployments/${deploymentId}?teamId=${VERCEL_TEAM_ID}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+
+    if (!res.ok) throw new Error("Failed to check deployment status");
+
+    const deployment: VercelDeployment = await res.json();
+
+    if (deployment.readyState === "READY") return deployment;
+    if (deployment.readyState === "ERROR" || deployment.readyState === "CANCELED") {
+      throw new Error(`Vercel deployment ${deployment.readyState}`);
+    }
+
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+
+  throw new Error("Deployment timed out");
+}
+
+/**
+ * Assign a custom alias to a ready deployment
+ * Uses the deployment URL (vercel.app) as the ID format required by the API
  */
 async function assignAlias(
   deploymentId: string,
   alias: string,
   token: string
 ): Promise<void> {
-  const res = await fetch(`${VERCEL_API}/v2/deployments/${deploymentId}/aliases?teamId=${VERCEL_TEAM_SLUG}`, {
+  const url = `${VERCEL_API}/v2/deployments/${deploymentId}/aliases?teamId=${VERCEL_TEAM_ID}`;
+
+  const res = await fetch(url, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -191,39 +209,11 @@ async function assignAlias(
   });
 
   const data = await res.json();
+  console.log(`[ALIAS] ${alias} → status ${res.status}:`, JSON.stringify(data));
+
   if (!res.ok && res.status !== 409) {
-    console.error(`[ALIAS] Failed to assign ${alias}: ${JSON.stringify(data)}`);
+    console.error(`[ALIAS] ❌ Failed to assign ${alias}: ${JSON.stringify(data)}`);
   } else {
     console.log(`[ALIAS] ✅ Assigned ${alias}`);
   }
-}
-/**
- * Poll until deployment is ready
- */
-async function waitForDeployment(
-  deploymentId: string,
-  token: string,
-  maxAttempts = 20
-): Promise<VercelDeployment> {
-  for (let i = 0; i < maxAttempts; i++) {
-    const res = await fetch(`${VERCEL_API}/v13/deployments/${deploymentId}?teamId=${VERCEL_TEAM_SLUG}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    if (!res.ok) throw new Error("Failed to check deployment status");
-
-    const deployment: VercelDeployment = await res.json();
-
-    if (deployment.readyState === "READY") return deployment;
-    if (
-      deployment.readyState === "ERROR" ||
-      deployment.readyState === "CANCELED"
-    ) {
-      throw new Error(`Vercel deployment ${deployment.readyState}`);
-    }
-
-    await new Promise((r) => setTimeout(r, 1500));
-  }
-
-  throw new Error("Deployment timed out");
 }
