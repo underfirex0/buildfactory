@@ -156,10 +156,6 @@ async function createDeployment(
     target: "production",
   };
 
-  if (alias) {
-    body.alias = [alias];
-    console.log(`[DOMAIN] Setting alias at creation: ${alias}`);
-  }
 
   const res = await fetch(`${VERCEL_API}/v13/deployments?teamId=${VERCEL_TEAM_SLUG}`, {
     method: "POST",
