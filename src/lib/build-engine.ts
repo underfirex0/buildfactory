@@ -321,8 +321,9 @@ export async function processTemplate(templateBuffer: ArrayBuffer, lead: Lead): 
   }
     // Add vercel.json for static site serving
   outputZip.file("vercel.json", JSON.stringify({
-    "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
-  }, null, 2));
+  "cleanUrls": true,
+  "trailingSlash": false
+}, null, 2));
   return outputZip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
 }
 
