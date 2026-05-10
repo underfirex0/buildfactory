@@ -99,7 +99,7 @@ async function uploadFiles(
   for (const [filename, content] of Object.entries(files)) {
     const sha = crypto.createHash("sha1").update(content).digest("hex");
 
-    const res = await fetch(`${VERCEL_API}/v2/files`, {
+    const res = await fetch(`${VERCEL_API}/v2/files?teamId=${VERCEL_TEAM_SLUG}`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -156,7 +156,7 @@ async function createDeployment(
     console.log(`[DOMAIN] Setting alias at creation: ${alias}`);
   }
 
-  const res = await fetch(`${VERCEL_API}/v13/deployments`, {
+  const res = await fetch(`${VERCEL_API}/v13/deployments?teamId=${VERCEL_TEAM_SLUG}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -182,7 +182,7 @@ async function waitForDeployment(
   maxAttempts = 20
 ): Promise<VercelDeployment> {
   for (let i = 0; i < maxAttempts; i++) {
-    const res = await fetch(`${VERCEL_API}/v13/deployments/${deploymentId}`, {
+    const res = await fetch(`${VERCEL_API}/v13/deployments/${deploymentId}?teamId=${VERCEL_TEAM_SLUG}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
 
