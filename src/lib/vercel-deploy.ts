@@ -7,7 +7,7 @@ import JSZip from "jszip";
 import crypto from "crypto";
 
 const VERCEL_API = "https://api.vercel.com";
-const VERCEL_TEAM_SLUG = "faissal-babiouis-projects";
+const VERCEL_TEAM_SLUG = "team_wy3WeSZgVNxFhj1wzSMo67SP";
 
 interface VercelDeployment {
   id: string;
