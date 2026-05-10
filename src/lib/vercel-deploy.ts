@@ -13,7 +13,6 @@ interface VercelDeployment {
   id: string;
   url: string;
   readyState: string;
-  alias?: string[];
 }
 
 interface VercelFile {
@@ -33,15 +32,9 @@ export async function deployToVercel(
   const deployment = await createDeployment(siteName, uploadedFiles, token);
   const ready = await waitForDeployment(deployment.id, token);
 
-  if (alias) {
-    await assignAlias(ready.id, alias, token);
-  }
-
-  const finalUrl = alias ? `https://${alias}` : `https://${ready.url}`;
-
   return {
     deploymentId: ready.id,
-    url: finalUrl,
+    url: `https://${ready.url}`,
   };
 }
 
@@ -170,30 +163,4 @@ async function waitForDeployment(
   }
 
   throw new Error("Deployment timed out");
-}
-
-async function assignAlias(
-  deploymentId: string,
-  alias: string,
-  token: string
-): Promise<void> {
-  const url = `${VERCEL_API}/v2/deployments/${deploymentId}/aliases?teamId=${VERCEL_TEAM_ID}`;
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ alias }),
-  });
-
-  const data = await res.json();
-  console.log(`[ALIAS] ${alias} → status ${res.status}:`, JSON.stringify(data));
-
-  if (!res.ok && res.status !== 409) {
-    console.error(`[ALIAS] ❌ Failed: ${JSON.stringify(data)}`);
-  } else {
-    console.log(`[ALIAS] ✅ Assigned ${alias}`);
-  }
 }
