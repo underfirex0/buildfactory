@@ -172,7 +172,30 @@ async function createDeployment(
 
   return res.json();
 }
+/**
+ * Assign a custom alias to a deployment
+ */
+async function assignAlias(
+  deploymentId: string,
+  alias: string,
+  token: string
+): Promise<void> {
+  const res = await fetch(`${VERCEL_API}/v2/deployments/${deploymentId}/aliases?teamId=${VERCEL_TEAM_SLUG}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ alias }),
+  });
 
+  const data = await res.json();
+  if (!res.ok && res.status !== 409) {
+    console.error(`[ALIAS] Failed to assign ${alias}: ${JSON.stringify(data)}`);
+  } else {
+    console.log(`[ALIAS] ✅ Assigned ${alias}`);
+  }
+}
 /**
  * Poll until deployment is ready
  */
