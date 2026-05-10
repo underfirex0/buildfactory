@@ -319,6 +319,10 @@ export async function processTemplate(templateBuffer: ArrayBuffer, lead: Lead): 
       outputZip.file(processedName, result);
     }
   }
+    // Add vercel.json for static site serving
+  outputZip.file("vercel.json", JSON.stringify({
+    "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  }, null, 2));
   return outputZip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
 }
 
