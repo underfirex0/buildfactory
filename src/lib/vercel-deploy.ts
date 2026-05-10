@@ -22,10 +22,6 @@ interface VercelFile {
   size: number;
 }
 
-/**
- * Deploy a ZIP buffer as a new Vercel deployment under the team
- * Then assign the custom alias
- */
 export async function deployToVercel(
   zipBuffer: Uint8Array,
   siteName: string,
@@ -37,7 +33,6 @@ export async function deployToVercel(
   const deployment = await createDeployment(siteName, uploadedFiles, token);
   const ready = await waitForDeployment(deployment.id, token);
 
-  // Assign custom alias after deployment is ready
   if (alias) {
     await assignAlias(ready.id, alias, token);
   }
@@ -50,9 +45,6 @@ export async function deployToVercel(
   };
 }
 
-/**
- * Extract files from ZIP, stripping single root folder if present
- */
 async function extractZipFiles(
   zipBuffer: Uint8Array
 ): Promise<Record<string, Buffer>> {
@@ -79,9 +71,6 @@ async function extractZipFiles(
   return files;
 }
 
-/**
- * Upload files to Vercel's file store under the team
- */
 async function uploadFiles(
   files: Record<string, Buffer>,
   token: string
@@ -113,9 +102,6 @@ async function uploadFiles(
   return uploaded;
 }
 
-/**
- * Create a Vercel deployment under the team
- */
 async function createDeployment(
   siteName: string,
   files: VercelFile[],
@@ -140,6 +126,7 @@ async function createDeployment(
       installCommand: null,
     },
     target: "production",
+    public: true,
   };
 
   const res = await fetch(`${VERCEL_API}/v13/deployments?teamId=${VERCEL_TEAM_ID}`, {
@@ -159,9 +146,6 @@ async function createDeployment(
   return res.json();
 }
 
-/**
- * Poll until deployment is READY
- */
 async function waitForDeployment(
   deploymentId: string,
   token: string,
@@ -188,10 +172,6 @@ async function waitForDeployment(
   throw new Error("Deployment timed out");
 }
 
-/**
- * Assign a custom alias to a ready deployment
- * Uses the deployment URL (vercel.app) as the ID format required by the API
- */
 async function assignAlias(
   deploymentId: string,
   alias: string,
@@ -212,7 +192,7 @@ async function assignAlias(
   console.log(`[ALIAS] ${alias} → status ${res.status}:`, JSON.stringify(data));
 
   if (!res.ok && res.status !== 409) {
-    console.error(`[ALIAS] ❌ Failed to assign ${alias}: ${JSON.stringify(data)}`);
+    console.error(`[ALIAS] ❌ Failed: ${JSON.stringify(data)}`);
   } else {
     console.log(`[ALIAS] ✅ Assigned ${alias}`);
   }
