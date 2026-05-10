@@ -32,9 +32,16 @@ export async function deployToVercel(
   const deployment = await createDeployment(siteName, uploadedFiles, token);
   const ready = await waitForDeployment(deployment.id, token);
 
+  // Use the shortest clean vercel.app alias
+  const cleanUrl = ready.alias
+    ? ready.alias
+        .filter((a: string) => a.endsWith(".vercel.app") && !a.includes("gylc") && !a.match(/[a-z0-9]{8,}\.vercel\.app$/))
+        .sort((a: string, b: string) => a.length - b.length)[0]
+    : null;
+
   return {
     deploymentId: ready.id,
-    url: `https://${ready.url}`,
+    url: `https://${cleanUrl ?? ready.url}`,
   };
 }
 
