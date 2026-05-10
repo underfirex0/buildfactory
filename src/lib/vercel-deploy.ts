@@ -6,6 +6,7 @@
 import JSZip from "jszip";
 import crypto from "crypto";
 
+const VERCEL_API = "https://api.vercel.com";
 const VERCEL_TEAM_SLUG = "faissal-babiouis-projects";
 
 interface VercelDeployment {
@@ -36,7 +37,6 @@ export async function deployToVercel(
   const deployment = await createDeployment(siteName, uploadedFiles, token, alias);
   const ready = await waitForDeployment(deployment.id, token);
 
-  // If alias was set, use it as the final URL
   const finalUrl = alias ? `https://${alias}` : getCleanUrl(ready);
 
   return {
