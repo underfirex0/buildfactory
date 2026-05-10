@@ -3,7 +3,7 @@ import { createServiceClient } from "@/lib/supabase";
 import { processTemplate } from "@/lib/build-engine";
 import { deployToVercel } from "@/lib/vercel-deploy";
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 const CUSTOM_DOMAIN = "yako.studio";
 
